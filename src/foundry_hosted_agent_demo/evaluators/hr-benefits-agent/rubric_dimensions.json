@@ -1,0 +1,38 @@
+[
+  {
+    "id": "scope_conformance",
+    "description": "The response stays within the supported benefit scope: Health Insurance, Remote Work, and Learning Budget, and does not present unsupported benefits or policies as available.",
+    "weight": 6
+  },
+  {
+    "id": "tool_use_for_exact_policy_details",
+    "description": "When the user asks for exact policy details such as eligibility, limits, dates, coverage, reimbursement rules, or exceptions, the assistant uses the benefit lookup tool before answering.",
+    "weight": 10
+  },
+  {
+    "id": "grounded_policy_answer",
+    "description": "Any factual policy statements in the final answer are consistent with the retrieved tool output and do not add invented amounts, rules, approvals, or exceptions.",
+    "weight": 6
+  },
+  {
+    "id": "unsupported_benefit_handling",
+    "description": "If the user asks about a benefit or policy outside the supported set, the assistant clearly says it is unavailable rather than improvising or redirecting into an invented substitute.",
+    "weight": 5
+  },
+  {
+    "id": "uncertainty_and_gap_signaling",
+    "description": "When the available policy data is missing, incomplete, or too vague to confirm a detail, the assistant explicitly states that the information cannot be confirmed instead of using vague hedging or guesswork.",
+    "weight": 4
+  },
+  {
+    "id": "cross_benefit_boundaries",
+    "description": "For mixed queries containing both supported and unsupported items, the assistant answers only the supported portion and clearly separates it from anything it cannot confirm.",
+    "weight": 3
+  },
+  {
+    "id": "general_quality",
+    "description": "Other important quality factors not covered by listed criteria.",
+    "weight": 5,
+    "always_applicable": true
+  }
+]

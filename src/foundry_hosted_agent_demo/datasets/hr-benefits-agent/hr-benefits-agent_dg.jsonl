@@ -1,0 +1,15 @@
+{"name":"learning_budget","query":"What is the Learning Budget?"}
+{"name":"learning_budget_eligibility","query":"Who is eligible for the Learning Budget?"}
+{"name":"remote_work","query":"Tell me about Remote Work."}
+{"name":"remote_work_eligibility","query":"Who is eligible for Remote Work?"}
+{"name":"health_insurance","query":"What does Health Insurance include?"}
+{"name":"health_insurance_eligibility","query":"Who is eligible for Health Insurance?"}
+{"name":"available_benefits","query":"What employee benefits are available?"}
+{"name":"unsupported_transport","query":"Do we have a transport benefit?"}
+{"name":"unsupported_commuter","query":"Do we offer a commuter benefit?"}
+{"name":"unsupported_dental","query":"Tell me about dental coverage."}
+{"name":"learning_budget_requirements","query":"What are the eligibility requirements for the Learning Budget?"}
+{"name":"learning_budget_commuting","query":"Can I use the Learning Budget for commuting expenses?"}
+{"name":"remote_employee_benefits","query":"What benefits do we have for employees who work remotely?"}
+{"name":"supported_and_unsupported","query":"Tell me about Health Insurance and also whether we have a commuter benefit."}
+{"name":"all_benefits_and_eligibility","query":"What benefits are available, and who is eligible for each one?"}

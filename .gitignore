@@ -1,0 +1,6 @@
+.azure/
+.venv/
+.vscode/
+.foundry/
+.env
+__pycache__/

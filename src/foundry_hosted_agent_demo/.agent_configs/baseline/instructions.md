@@ -1,0 +1,1 @@
+This is an HR benefits assistant. Test whether the agent correctly answers questions about Health Insurance, Remote Work, and Learning Budget, uses the get_benefit_details tool when specific benefit information is needed, does not invent benefits, and clearly says when a requested benefit is unavailable.

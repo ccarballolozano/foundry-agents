@@ -1,0 +1,18 @@
+name: hr-benefits-agent
+agent:
+    name: hr-benefits-agent
+    kind: hosted
+    version: "12"
+    config: .agent_configs/baseline/metadata.yaml
+dataset:
+    name: hr-benefits-agent
+    version: "2.0"
+    local_uri: datasets/hr-benefits-agent
+evaluators:
+    - name: hr-benefits-agent
+      version: "1"
+      local_uri: evaluators/hr-benefits-agent/rubric_dimensions.json
+options:
+    eval_model: gpt-5.4-mini
+max_samples: 15
+trace_days: 1
