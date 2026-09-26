@@ -26,6 +26,14 @@ services:
                 memory: 1Gi
         kind: hosted
         name: hr-benefits-agent
+        # Guardrail: reference your own RAI policy here.
+        # 1. Create a content safety (RAI) policy in the Foundry portal for your
+        #    Foundry account, then copy its full resource ID.
+        # 2. Replace the placeholder below with that resource ID.
+        # See the "Apply Guardrails" section in README.md for the full walkthrough.
+        policies:
+            - type: rai_policy
+              raiPolicyName: /subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.CognitiveServices/accounts/<foundry-account>/raiPolicies/<your-policy-name>
         protocols:
             - protocol: responses
               version: 2.0.0
