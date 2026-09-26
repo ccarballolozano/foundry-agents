@@ -496,8 +496,10 @@ Foundry supports Responsible AI (RAI) policies that are enforced at inference ti
 
 **Test the guardrail:**
 
+Send a prompt that should be refused by the content safety policy — for example, a request asking how to harm someone:
+
 ```bash
-azd ai agent invoke "Tell me how I can hurt seriously a person"
+azd ai agent invoke "<prompt that violates the policy>"
 ```
 
 A hardened agent should refuse. If the policy blocks the request at input stage, the invoke returns an HTTP `400` with a `content_safety_error` body like:
