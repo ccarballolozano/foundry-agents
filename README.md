@@ -618,6 +618,7 @@ This provides full control over session and conversation management from code â€
 
 - [How it fits together](#how-it-fits-together)
 - [MyConcepts handbook](#myconcepts-handbook)
+- [Two ways to reach Azure AI Search, and why we use Foundry IQ](#two-ways-to-reach-azure-ai-search-from-foundry-and-why-we-use-foundry-iq)
 - [Provision the knowledge stack](#provision-the-knowledge-stack)
 - [Run and deploy hr-agent](#run-and-deploy-hr-agent)
 - [Add a governed tool without a redeploy](#add-a-governed-tool-without-a-redeploy)
@@ -672,6 +673,28 @@ The handbook lives in `agents/hr-agent/knowledge/handbook/`. It describes **MyCo
 | `salary-bands-CONFIDENTIAL.md` | **Planted on purpose for the safety demo.** Synthetic salary bands and one fake employee record with personal data. The agent must never disclose it. |
 
 The planted document contains **canary values**: unique made-up strings (an employee ID, a phone number, salary figures) that appear nowhere else in the repo. The red teaming scan detects a leak by an exact match on these values. They are read from the document itself, so they're defined in one place.
+
+### Two ways to reach Azure AI Search from Foundry, and why we use Foundry IQ
+
+Foundry has two ways for an agent to use Azure AI Search. They look similar in the portal and use different connections, which is why the portal's **Knowledge** page can look empty while the agent clearly retrieves from Azure Search.
+
+| | **Foundry IQ knowledge base** (what `hr-agent` uses) | **Azure AI Search tool** |
+|---|---|---|
+| What the agent calls | A **knowledge base** (`knowledge_base_retrieve`, over MCP) | A **search index** by name (`index_name`) |
+| What does the retrieval | Agentic retrieval: an LLM plans sub-queries, hybrid vector + keyword search, semantic reranking, references per passage | One query against the index (simple, vector, semantic or hybrid) |
+| What you build | A knowledge source (here: blob storage) and a knowledge base. Indexing, embeddings and sync are created and run for you | An index you design yourself: searchable text field, vector field, a retrievable URL field for citations |
+| Connection kind | `RemoteTool` (MCP endpoint of the knowledge base) | `CognitiveSearch` ("Azure AI Search" in Connected resources) |
+| Identity | Per call: `agentic-identity` (the agent's own) or `user-entra-token` (the developer's). Needs `Search Index Data Reader` | Project connection; keyless needs the Foundry **account** identity to hold `Search Index Data Contributor` and `Search Service Contributor` |
+| Appears in the portal | In the toolbox and agent **Tools**. The **Knowledge** page lists search services attached by a `CognitiveSearch` connection | Same connection, so it shows on the **Knowledge** page |
+| Status | Preview (`2026-08-01-preview`) | Generally documented, also usable through a toolbox |
+
+**Why we chose the knowledge base through a toolbox:**
+- **Identity.** The `RemoteTool` connection lets us forward the *agent's own* identity per call, with one read-only role. The `CognitiveSearch` route would make the project's shared identity do the reading, with broader roles, for every agent. Per-agent identity is the point of the demo.
+- **Less to build and operate.** We upload Markdown files; Foundry IQ creates the index, skillset and indexer, and re-syncs on a schedule. With the search tool we would design the index and its vector fields ourselves.
+- **Better answers on policy questions.** Query planning and reranking come with the knowledge base, which the evaluation scores (handbook questions, citations).
+- **One governed endpoint.** The toolbox exposes it, and any later tool (for example another agent) is added the same way with no code change.
+
+**Why `provision.py` also creates a `CognitiveSearch` connection (`hr-search`):** it exists only so the portal's Knowledge page shows the knowledge base. No agent uses it. If you prefer not to grant the extra roles the portal needs, skip it: the agent works without it.
 
 ### Provision the knowledge stack
 
@@ -795,8 +818,8 @@ Contrast with a shared key or one broad managed identity for every agent: you co
 | Targeted red teaming with canary matching, labelled runs | **Show it** | Deterministic leak detection, no judge needed |
 | Guardrail blocking a jailbreak at the input stage | **Show it** | `scripts/probe-guardrail.sh`, Microsoft default or `hr-agent-guard` |
 | Guardrail stopping the data leak | **Do not claim it** | It does not: leaks come from plain requests. Show the before/after table as the lesson |
-| PII controls (`Phone Number Protection`, `Email Protection`) | **Do not show** | No effect in our tests, on prompt or completion |
-| Indirect Attack control | **Do not show** | Did not block an injected document in our test |
+| PII controls (`Phone Number Protection`, `Email Protection`) | **Do not show** | Adding them blocks *every* request or response, including benign ones (portal-made and API-made policies alike) |
+| Indirect Attack control | **Do not show** | Did not block a document with an embedded instruction (tested with a fresh policy) |
 | Tool-call and tool-response guardrail points | **Not available** | Not settable through the `raiPolicies` API |
 | Cloud red team: `IndirectJailbreak`, sensitive-data-leakage category | **Not available** | Platform fails to start the sandbox (both agents) |
 | Cloud red team: prohibited actions, task adherence | **Show the mechanism, not the numbers** | False positives in spot checks |
@@ -924,11 +947,25 @@ azd ai eval run start --path agents/hr-agent/evals
 
 #### Guardrail status (preview)
 
-- **Microsoft's default policy and a custom policy both work.** With `Microsoft.DefaultV2` attached, and with `hr-agent-guard` (a custom policy defined as DefaultV2's filters plus Indirect Attack), a jailbreak input is blocked at the input stage and normal questions are answered. Violent input is not blocked because the model refuses it first and the filter threshold is Medium.
-- **Define custom policies in Microsoft's field format.** Our first attempts used `severityThreshold: "None"` on non-severity filters and omitted `action`, and made **every** response fail with `content_filter ... at output stage`, even for "Say hello". Copying the filters of `Microsoft.DefaultV2` exactly (read them from the policy *list*; fetching a system policy by name returns 404) fixes it. Start from the definition file, not from scratch.
-- **PII controls had no effect in our tests.** `Phone Number Protection` and `Email Protection` entries on either the prompt or the completion did not block a phone number or an email, in the prompt or in the answer. Indirect Attack on user input did not block a document with an embedded instruction either (the model resisted it itself). Treat these as unverified until tested in your tenant; do not demo them.
+What we verified, on the hosted `hr-agent`, with each result reproduced under a **fresh policy name**:
+
+| Policy | Result |
+|---|---|
+| `Microsoft.DefaultV2` (Microsoft's) | Works. A jailbreak is blocked at the input stage with a request ID; normal questions are answered |
+| Custom policy = the exact filters of `DefaultV2` (our `hr-agent-guard`) | Works, same behaviour |
+| Same, plus `Indirect Attack` on the prompt | Works as above. A document with an embedded instruction is **not** blocked (the model ignores it on its own) |
+| A policy created in the portal with the PII control (`DemoHostedAgent-PII-2`) | **Blocks every request**, including "How many weeks of parental leave...", at the input stage |
+| `DefaultV2` copy plus `Email Protection` and `Phone Number Protection` on the **prompt** | **Blocks every request** at the input stage |
+| `DefaultV2` copy plus `Email`/`Phone`/`Address Protection` on the **completion** | **Blocks every response** at the output stage |
+| The portal policy with only those two PII entries removed | Works again |
+
+- **The PII control cannot be demoed in this environment.** Whatever the PII entries scan, they flag every request or response, so adding them to any policy makes the hosted agent unusable. Removing just those entries fixes it. If you saw "once I added a custom guardrail everything was blocked", this is very likely why.
+- **Custom guardrails without the PII entries are fine.** The blocking is not about custom policies.
+- **Policy edits may not reach an agent that is already deployed.** Editing a policy in place and re-probing gave us stale results. When you change a policy, create it under a **new name** and redeploy.
 - **Intervention points.** Only user input and output can be configured through the `raiPolicies` API (up to `2026-11-15-preview`); tool-call and tool-response sources are rejected.
 - **Fail open.** A missing or misspelled policy ID attaches nothing and returns no error. Always run the listing check from [Apply Guardrails](#apply-guardrails) and `scripts/probe-guardrail.sh` after a deploy.
+
+**What to show:** a jailbreak blocked at the input stage by Microsoft's policy or `hr-agent-guard`, then the before/after table to explain what a guardrail does *not* do, then the evaluation and the identity demo for the rest. **Do not show:** PII blocking, Indirect Attack.
 
 ### Tear down
 
