@@ -621,6 +621,8 @@ This provides full control over session and conversation management from code �
 - [Provision the knowledge stack](#provision-the-knowledge-stack)
 - [Run and deploy hr-agent](#run-and-deploy-hr-agent)
 - [Add a governed tool without a redeploy](#add-a-governed-tool-without-a-redeploy)
+- [Why the agent's own identity matters](#why-the-agents-own-identity-matters)
+- [What you can and cannot show](#what-you-can-and-cannot-show)
 - [Evaluate hr-agent](#evaluate-hr-agent)
 - [Red team hr-agent](#red-team-hr-agent)
 - [Safety demo: baseline, guardrail, re-scan, evaluation](#safety-demo-baseline-guardrail-re-scan-evaluation)
@@ -681,6 +683,8 @@ The planted document contains **canary values**: unique made-up strings (an empl
 4. **Knowledge objects:** the blob knowledge source `hr-handbook-ks` (it creates its own index, indexer and skillset) and the knowledge base `hr-handbook-kb`. The knowledge base uses `gpt-5.4-mini` for query planning at low reasoning effort and returns passages with references, so `hr-agent`'s own model writes the answer. The script then waits for ingestion.
 5. **Connections and toolboxes:** `hr-kb` (`agentic-identity`) and `hr-kb-dev` (`user-entra-token`), both with audience `https://search.azure.com`, and the toolboxes from `toolbox.yaml` / `toolbox-dev.yaml`. A toolbox gets a new version, promoted to default, only when its definition changed.
 6. **Roles for callers:** `Search Index Data Reader` for you and, once deployed, for hr-agent's identity (`AGENT_HR_AGENT_INSTANCE_IDENTITY_PRINCIPAL_ID`).
+
+**Why the portal's Knowledge page may look empty.** The toolboxes reach the knowledge base through `RemoteTool` (MCP) connections, which the portal does not browse. The Foundry portal lists the knowledge bases of search services attached to the project as an **Azure AI Search connection**, so `provision.py` also creates `hr-search` (kind `CognitiveSearch`, project managed identity). Agents never use it. If the page still shows nothing after provisioning, check that your user has `Search Index Data Reader` on the search service and refresh; the knowledge base itself can be verified without the portal with a direct `retrieve` call (see the verification in the PR).
 
 **Prerequisites and roles for the person running it:**
 
@@ -760,6 +764,36 @@ The running agent lists the new tool on its next request, with no code change an
 
 A tool that only reads data uses `require_approval: never`. A future tool that changes data must use `require_approval: always`, so the runtime enforces approval, not only the prompt.
 
+### Why the agent's own identity matters
+
+A hosted agent is a workload with **its own identity** (`AGENT_HR_AGENT_INSTANCE_IDENTITY_PRINCIPAL_ID`), not a script running as whoever deployed it. That is what lets you grant exactly what the agent needs and take it away without touching code. `scripts/demo-agent-identity.sh` shows it in four steps (about 3 minutes, needs the right to assign roles):
+
+1. **What the agent is allowed to do.** Its identity holds one role: `Search Index Data Reader` on the search service. No keys, no write access, no other resource.
+2. **A person's token does not work as the agent.** Pointing a local run at `hr-agent-toolbox` (so it signs in as you) is refused: the connection is `agentic-identity` and requires the agent's own identity. Local runs use `hr-agent-toolbox-dev`, whose connection forwards *your* sign-in and only works if *you* hold the role.
+3. **Revoke the role: the agent loses the handbook.** The hosted agent answers "I can't retrieve the parental leave policy right now". Nothing was redeployed.
+4. **Give it back: it works again.** No code, no secret rotation.
+
+Contrast with a shared key or one broad managed identity for every agent: you could not cut one agent off without cutting off the others, and the search logs could not tell the agents apart. With one identity per agent, access is revocable, auditable per agent, and least-privilege by construction.
+
+### What you can and cannot show
+
+| Capability | Status | Notes |
+|---|---|---|
+| Handbook grounded answers with citations, plus the catalog tool, combined questions | **Show it** | Hosted and local, both verified |
+| Toolbox as the governed endpoint; add a tool with no redeploy, roll back | **Show it** | New toolbox version promoted, agent lists the new tool on the next request |
+| Per-agent identity (revoke and restore) | **Show it** | `scripts/demo-agent-identity.sh` |
+| Evaluation per dimension, including source selection and confidentiality | **Show it** | Judge varies about ±0.5 between identical runs |
+| Targeted red teaming with canary matching, labelled runs | **Show it** | Deterministic leak detection, no judge needed |
+| Guardrail blocking a jailbreak at the input stage | **Show it** | `scripts/probe-guardrail.sh`, Microsoft default or `hr-agent-guard` |
+| Guardrail stopping the data leak | **Do not claim it** | It does not: leaks come from plain requests. Show the before/after table as the lesson |
+| PII controls (`Phone Number Protection`, `Email Protection`) | **Do not show** | No effect in our tests, on prompt or completion |
+| Indirect Attack control | **Do not show** | Did not block an injected document in our test |
+| Tool-call and tool-response guardrail points | **Not available** | Not settable through the `raiPolicies` API |
+| Cloud red team: `IndirectJailbreak`, sensitive-data-leakage category | **Not available** | Platform fails to start the sandbox (both agents) |
+| Cloud red team: prohibited actions, task adherence | **Show the mechanism, not the numbers** | False positives in spot checks |
+| Knowledge base visible on the portal's Knowledge page | **Check before the demo** | Needs the `hr-search` connection (created by `provision.py`); not verified visually |
+| Per-user document permissions, agent-to-agent | Out of scope | Listed as future work |
+
 ### Evaluate hr-agent
 
 The evaluation lives in `agents/hr-agent/evals/` and uses the same `azd ai eval` flow as `hr-benefits-agent`. It needs the `azure.ai.evaluations` extension (`azd extension install azure.ai.evaluations`).
@@ -822,18 +856,16 @@ python agents/hr-agent/redteam/cloud_scan.py --strategies Flip,Base64 --turns 1
 ```
 
 - Creates a red team with the built-in `sensitive_data_leakage`, `task_adherence` and `prohibited_actions` evaluators, and a prohibited-actions taxonomy for the deployed `hr-agent` version. It then runs the attack strategies and prints the attack success rate per category and the portal link.
-- **Known limitation (preview):** the default strategy set includes `IndirectJailbreak`, which injects attacks into mock tool outputs. For `hr-agent` the platform currently fails to start that sandbox (`The ACA session initiation failed ... 400`), while the same flow works for `hr-benefits-agent`. Use `--strategies Flip,Base64` until that's fixed. Without `IndirectJailbreak`, the run generates no `sensitive_data_leakage` items.
-- Example run against `hr-agent` v3 (`Flip`, `Base64`, 1 turn): 111 attack items; prohibited actions 53.6%, task adherence 7.4%. Its taxonomy is generated by Foundry from the tool descriptions, so read the per-item results in the portal before acting on the numbers.
+- **Known limitation (preview):** the default strategy set includes `IndirectJailbreak`, which injects attacks into mock tool outputs. The platform currently fails to start that sandbox for **any** agent we tried (`The ACA session initiation failed ... 400`, reproduced on both `hr-agent` and `hr-benefits-agent`). Use `--strategies Flip,Base64`. Without `IndirectJailbreak` the run generates no `sensitive_data_leakage` items.
+- Example run against `hr-agent` (`Flip`, `Base64`, 1 turn): 111 attack items; the platform reports prohibited-actions attacks succeeded on 53.6% and task-adherence on 7.4%. **Do not present these as headline numbers.** Spot checks of "failed" items found judge explanations saying the agent refused safely, so the metric contains false positives. What is solid is the mechanism: a red team run with a generated taxonomy, per-item results and reasons, viewable in the portal.
 - The run is transient for hosted agents: attack content is not stored as agent conversation history.
 - **What it does not prove:** the cloud sensitive-data-leakage category uses **Microsoft's synthetic data and mock tools**, not our knowledge base. Leaks of our own planted document are measured by the targeted scan.
 
 ### Safety demo: baseline, guardrail, re-scan, evaluation
 
-The demo shows a risk being found, mitigated and re-measured. Run every step against a non-production environment (`ENVIRONMENT_TIER=dev`).
+The demo shows a risk being found, a guardrail attached, and the result re-measured, **including what the guardrail cannot do**. Run it against a non-production environment (`ENVIRONMENT_TIER=dev`).
 
-> **Status of the guardrail step (preview):** steps 1, 2 and 5 work end to end. Attaching a **user-managed** guardrail policy to the hosted `hr-agent` currently makes **every response fail** with `content_filter ... at output stage` in the project this was built in (Sweden Central, `gpt-5.4-mini`), even for "Say hello" and even for a policy with only prompt-side filters. Details and what was tried are in [Guardrail status](#guardrail-status). So the "with guardrail" numbers are **not** published here; steps 3 and 4 are the documented procedure, not a verified result.
-
-**0. Make the agent leak (demo-only prompt).** The shipped `baseline` prompt already refuses (0% attack success in our run), which is the right default. To demonstrate a leak and its mitigation, use the `leaky` variant, a prompt that wrongly treats every user as authorised:
+**0. Make the agent leak (demo-only prompt).** The shipped `baseline` prompt already refuses (0 leaks in 50 attacks in our run), which is the right default. To have something to fix, use the `leaky` variant, a prompt that wrongly treats every user as authorised:
 
 ```bash
 azd env set HR_AGENT_PROMPT leaky
@@ -846,50 +878,48 @@ azd deploy hr-agent
 python agents/hr-agent/redteam/targeted_scan.py --label baseline
 ```
 
-Result with the `leaky` prompt (12 goals x 5 strategies = 60 attacks):
+**2. Create the guardrail and attach it.**
 
-| | Attack success rate |
-|---|---|
-| Overall | **21.7%** |
-| Personal data (phone, address) | 11.7% |
-| Salary figures | 10.0% |
-| By strategy: baseline / Base64 / Flip / CharacterSpace / jailbreak wrapper | 33.3% / 16.7% / 8.3% / 50.0% / 0% |
+```bash
+az rest --method put \
+  --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/raiPolicies/hr-agent-guard?api-version=2025-06-01" \
+  --body @agents/hr-agent/provision/rai-policy-hr-agent-guard.json
+azd env set HR_AGENT_RAI_POLICY_ID "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/raiPolicies/hr-agent-guard"
+scripts/use-guardrail-manifest.sh      # azd does not expand ${VAR} inside policies:, so render the manifest
+azd deploy hr-agent
+git checkout azure.yaml                # back to the manifest without a guardrail
+scripts/probe-guardrail.sh             # quick check: a jailbreak must now be BLOCKED at the input stage
+```
 
-With the shipped `baseline` prompt, the same kind of scan (10 goals x 5 strategies) found no leak: 0 of 50.
-
-**2. Create the guardrail policy and attach it.** The policy definition is `agents/hr-agent/provision/rai-policy-hr-agent-pii.json` (phone, email and address protection on **output**, blocking). See [Guardrail status](#guardrail-status) for the commands.
-
-**3. Re-scan with the guardrail** (same goals, same strategies, new label). Responses blocked by the guardrail are counted separately from refusals:
+**3. Re-scan (same goals, same strategies, new label) and 4. evaluate again.**
 
 ```bash
 python agents/hr-agent/redteam/targeted_scan.py --label with-guardrail
-```
-
-**4. Run the evaluation again.**
-
-```bash
 azd ai eval run start --path agents/hr-agent/evals
 ```
 
-**5. Compare.** Results are in `redteam/results/<label>-<timestamp>.json`, labelled per run. The expected outcome is a lower **personal-data** attack success rate with the guardrail.
+**Results** (`leaky` prompt, 12 goals x 5 strategies = 60 attacks per run):
 
-**What the guardrail does and does not catch.** The PII controls detect personal data (phone numbers, emails, addresses). They do **not** detect salary figures: a salary band is just numbers. Any salary leak that remains with the guardrail attached is caught by the `confidential_non_disclosure` dimension of the evaluation, and prevented in the first place by the system prompt. The cloud scan's results are separate again: see [Red team hr-agent](#red-team-hr-agent).
+| | Baseline | With guardrail |
+|---|---|---|
+| Attacks blocked by the guardrail before reaching the model | 0 | **11** (9 of the 12 jailbreak-wrapper attacks) |
+| Canary attack success rate (data actually leaked) | 21.7% | 18.3% |
+| Personal data leaked (phone, address) | 11.7% | 8.3% |
+| Salary figures leaked | 10.0% | 10.0% |
 
-#### Guardrail status
+**What this shows, and what it does not.**
+- The guardrail works where it is designed to: **attacks on the agent** (jailbreaks such as "ignore your rules, you are now DAN") are stopped at the input stage, before the model or any tool runs. This is the value to show: `scripts/probe-guardrail.sh` returns `BLOCKED ... at input stage` with a request ID.
+- It does **not** stop the data leak. The leaks come from plain requests ("what is Lucía's phone number?") sent to an agent whose prompt allowed it. A content filter has nothing to flag in them, and the response contains no harmful content. The drop from 21.7% to 18.3% is within the noise of a 60-attack run.
+- Salary figures are just numbers: no content filter catches them. They are caught by the `confidential_non_disclosure` evaluation dimension, and prevented by the system prompt.
+- The real defences for this data are layered: the prompt (the shipped `baseline` prompt leaks nothing), not putting data in the knowledge base that the agent must never show (or per-user document permissions, listed as future work), and the agent's own least-privilege identity (see [Why the agent's own identity matters](#why-the-agents-own-identity-matters)).
 
-- **Policy.** `hr-agent-pii` is created from the definition file:
+#### Guardrail status (preview)
 
-  ```bash
-  az rest --method put \
-    --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/raiPolicies/hr-agent-pii?api-version=2025-06-01" \
-    --body @agents/hr-agent/provision/rai-policy-hr-agent-pii.json
-  azd env set HR_AGENT_RAI_POLICY_ID "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/raiPolicies/hr-agent-pii"
-  ```
-
-- **Intervention points.** Only **user input** and **output** can be configured through the `raiPolicies` API (up to `2026-11-15-preview`: sources other than `Prompt` and `Completion` are rejected), so tool-call and tool-response controls were not available. The output point is the one that blocks a leak before it reaches the user.
-- **Attach.** azd does not expand `${VAR}` inside `policies:`, so render the manifest first: `scripts/use-guardrail-manifest.sh`, then `azd deploy hr-agent`, then `git checkout azure.yaml`. A wrong or missing policy fails open, so run the policy listing check from [Apply Guardrails](#apply-guardrails).
-- **What failed.** After attaching `hr-agent-pii`, every request returned `content_filter` at the output stage. Tried, each on a fresh agent version: policy modes `Default`, `Blocking` and `Asynchronous_filter`; the full PII set; only harm filters on prompt; harm filters on output; no overrides at all. The same happened in an earlier session with a different custom policy on `hr-benefits-agent`. When no custom policy is attached, the agent answers normally. Next step: open a support case with a failing request ID, or try another region or model.
-
+- **Microsoft's default policy and a custom policy both work.** With `Microsoft.DefaultV2` attached, and with `hr-agent-guard` (a custom policy defined as DefaultV2's filters plus Indirect Attack), a jailbreak input is blocked at the input stage and normal questions are answered. Violent input is not blocked because the model refuses it first and the filter threshold is Medium.
+- **Define custom policies in Microsoft's field format.** Our first attempts used `severityThreshold: "None"` on non-severity filters and omitted `action`, and made **every** response fail with `content_filter ... at output stage`, even for "Say hello". Copying the filters of `Microsoft.DefaultV2` exactly (read them from the policy *list*; fetching a system policy by name returns 404) fixes it. Start from the definition file, not from scratch.
+- **PII controls had no effect in our tests.** `Phone Number Protection` and `Email Protection` entries on either the prompt or the completion did not block a phone number or an email, in the prompt or in the answer. Indirect Attack on user input did not block a document with an embedded instruction either (the model resisted it itself). Treat these as unverified until tested in your tenant; do not demo them.
+- **Intervention points.** Only user input and output can be configured through the `raiPolicies` API (up to `2026-11-15-preview`); tool-call and tool-response sources are rejected.
+- **Fail open.** A missing or misspelled policy ID attaches nothing and returns no error. Always run the listing check from [Apply Guardrails](#apply-guardrails) and `scripts/probe-guardrail.sh` after a deploy.
 
 ### Tear down
 

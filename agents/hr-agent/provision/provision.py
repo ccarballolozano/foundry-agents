@@ -420,9 +420,24 @@ def delete_knowledge_source(index_client: SearchIndexClient) -> None:
 
 
 # --- Step 5: connections and toolboxes --------------------------------------------
+SEARCH_CONNECTION = "hr-search"
+
+
 def ensure_connections_and_toolboxes(env: dict[str, str]) -> None:
     kb_mcp = env["HR_AGENT_KB_MCP_ENDPOINT"]
     connections = {c["name"]: c for c in azd_json("ai", "connection", "list")}
+
+    # The toolboxes use RemoteTool (MCP) connections, which the portal does not browse. The Foundry
+    # portal's Knowledge page lists the knowledge bases of search services attached to the project as
+    # an Azure AI Search connection, so attach this one too. Agents never use it.
+    search_endpoint = env["HR_AGENT_SEARCH_ENDPOINT"].rstrip("/") + "/"
+    existing_search = connections.get(SEARCH_CONNECTION)
+    if existing_search and existing_search.get("target", "").rstrip("/") + "/" == search_endpoint:
+        print(f"  connection {SEARCH_CONNECTION} up to date (shows the knowledge base in the portal)")
+    else:
+        azd("ai", "connection", "create", SEARCH_CONNECTION, "--kind", "cognitive-search", "--force",
+            "--target", search_endpoint, "--auth-type", "project-managed-identity")
+        print(f"  connection {SEARCH_CONNECTION} created (shows the knowledge base in the portal)")
     expected_auth = {"agentic-identity": "AgenticIdentityToken", "user-entra-token": "UserEntraToken",
                      "project-managed-identity": "ProjectManagedIdentity"}
 
@@ -470,6 +485,7 @@ def ensure_toolbox(env: dict[str, str], name: str, definition: dict) -> None:
 # --- Teardown ---------------------------------------------------------------------
 def teardown(env: dict[str, str]) -> None:
     step("Teardown: toolboxes and connections")
+    run(["azd", "ai", "connection", "delete", SEARCH_CONNECTION, "--force", "--no-prompt"], check=False)
     for toolbox, (_, connection, _) in TOOLBOXES.items():
         response = foundry_request(env, "DELETE", f"toolboxes/{toolbox}")
         print(f"  toolbox {toolbox}: {'deleted' if response.status_code in (200, 204) else 'not found'}")

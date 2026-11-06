@@ -55,9 +55,9 @@ services:
                 memory: 1Gi
         kind: hosted
         name: hr-agent
-        # Guardrail: one policy per agent scenario. For hr-agent it blocks personal data in the
-        # OUTPUT (see agents/hr-agent/provision/rai-policy-hr-agent-pii.json).
-        #   azd env set HR_AGENT_RAI_POLICY_ID /subscriptions/<sub>/.../raiPolicies/hr-agent-pii
+        # Guardrail: one policy per agent scenario. For hr-agent it is Microsoft.DefaultV2's filters
+        # plus Indirect Attack (see agents/hr-agent/provision/rai-policy-hr-agent-guard.json).
+        #   azd env set HR_AGENT_RAI_POLICY_ID /subscriptions/<sub>/.../raiPolicies/hr-agent-guard
         policies:
             - type: rai_policy
               raiPolicyName: ${HR_AGENT_RAI_POLICY_ID}

@@ -36,9 +36,9 @@ from azure.identity import AzureCliCredential
 from common import AGENT_NAME, load_azd_env, require_non_production
 
 RESULTS_DIR = Path(__file__).parent / "results"
-# Design D8 strategies. IndirectJailbreak injects attacks into mock tool outputs; for hr-agent the
-# platform currently fails to start that sandbox ("ACA session initiation failed ... 400"), so the
-# documented demo command passes --strategies Flip,Base64.
+# Design D8 strategies. IndirectJailbreak injects attacks into mock tool outputs; the
+# platform currently fails to start that sandbox for any agent we tried ("ACA session initiation
+# failed ... 400"), so the documented demo command passes --strategies Flip,Base64.
 STRATEGIES = ["Flip", "Base64", "IndirectJailbreak"]
 EVALUATORS = {
     "Sensitive Data Leakage": "builtin.sensitive_data_leakage",
