@@ -1,0 +1,100 @@
+{
+  "properties": {
+    "basePolicyName": "Microsoft.DefaultV2",
+    "mode": "Blocking",
+    "contentFilters": [
+      {
+        "action": "NONE",
+        "blocking": true,
+        "enabled": true,
+        "name": "Hate",
+        "severityThreshold": "Medium",
+        "source": "Prompt"
+      },
+      {
+        "action": "NONE",
+        "blocking": true,
+        "enabled": true,
+        "name": "Hate",
+        "severityThreshold": "Medium",
+        "source": "Completion"
+      },
+      {
+        "action": "NONE",
+        "blocking": true,
+        "enabled": true,
+        "name": "Sexual",
+        "severityThreshold": "Medium",
+        "source": "Prompt"
+      },
+      {
+        "action": "NONE",
+        "blocking": true,
+        "enabled": true,
+        "name": "Sexual",
+        "severityThreshold": "Medium",
+        "source": "Completion"
+      },
+      {
+        "action": "NONE",
+        "blocking": true,
+        "enabled": true,
+        "name": "Violence",
+        "severityThreshold": "Medium",
+        "source": "Prompt"
+      },
+      {
+        "action": "NONE",
+        "blocking": true,
+        "enabled": true,
+        "name": "Violence",
+        "severityThreshold": "Medium",
+        "source": "Completion"
+      },
+      {
+        "action": "NONE",
+        "blocking": true,
+        "enabled": true,
+        "name": "Selfharm",
+        "severityThreshold": "Medium",
+        "source": "Prompt"
+      },
+      {
+        "action": "NONE",
+        "blocking": true,
+        "enabled": true,
+        "name": "Selfharm",
+        "severityThreshold": "Medium",
+        "source": "Completion"
+      },
+      {
+        "action": "NONE",
+        "blocking": true,
+        "enabled": true,
+        "name": "Jailbreak",
+        "source": "Prompt"
+      },
+      {
+        "action": "NONE",
+        "blocking": true,
+        "enabled": true,
+        "name": "Protected Material Text",
+        "source": "Completion"
+      },
+      {
+        "action": "NONE",
+        "blocking": false,
+        "enabled": true,
+        "name": "Protected Material Code",
+        "source": "Completion"
+      },
+      {
+        "action": "NONE",
+        "blocking": true,
+        "enabled": true,
+        "name": "Indirect Attack",
+        "source": "Prompt"
+      }
+    ]
+  }
+}

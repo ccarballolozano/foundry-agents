@@ -26,17 +26,47 @@ services:
                 memory: 1Gi
         kind: hosted
         name: hr-benefits-agent
-        # Guardrail: reference your own RAI policy here.
-        # 1. Create a content safety (RAI) policy in the Foundry portal for your
-        #    Foundry account, then copy its full resource ID.
-        # 2. Replace the placeholder below with that resource ID.
-        # See the "Apply Guardrails" section in README.md for the full walkthrough.
+        # Guardrail: the RAI policy ID comes from the azd environment, so no real ID is committed.
+        #   azd env set HR_BENEFITS_AGENT_RAI_POLICY_ID /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/raiPolicies/<policy>
+        # A wrong or missing ID fails open (no error, no guardrail): run the policy listing check
+        # from the "Apply Guardrails" section in README.md before relying on it.
         policies:
             - type: rai_policy
-              raiPolicyName: /subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.CognitiveServices/accounts/<foundry-account>/raiPolicies/<your-policy-name>
+              raiPolicyName: ${HR_BENEFITS_AGENT_RAI_POLICY_ID}
         protocols:
             - protocol: responses
               version: 2.0.0
         env:
             AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
             AGENT_PROMPT: ${AGENT_PROMPT}
+    hr-agent:
+        project: agents/hr-agent
+        host: azure.ai.agent
+        language: python
+        uses:
+            - ai-project
+        codeConfiguration:
+            dependencyResolution: remote_build
+            entryPoint: main.py
+            runtime: python_3_13
+        container:
+            resources:
+                cpu: "0.5"
+                memory: 1Gi
+        kind: hosted
+        name: hr-agent
+        # Guardrail: one policy per agent scenario. For hr-agent it is Microsoft.DefaultV2's filters
+        # plus Indirect Attack (see agents/hr-agent/provision/rai-policy-hr-agent-guard.json).
+        #   azd env set HR_AGENT_RAI_POLICY_ID /subscriptions/<sub>/.../raiPolicies/hr-agent-guard
+        policies:
+            - type: rai_policy
+              raiPolicyName: ${HR_AGENT_RAI_POLICY_ID}
+        protocols:
+            - protocol: responses
+              version: 2.0.0
+        env:
+            AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+            # Own variable so hr-benefits-agent's AGENT_PROMPT variants (mistake, new-version) don't apply here.
+            AGENT_PROMPT: ${HR_AGENT_PROMPT}
+            # Empty means the default (hr-agent-toolbox). Used only when hosted.
+            HR_AGENT_TOOLBOX: ${HR_AGENT_TOOLBOX}

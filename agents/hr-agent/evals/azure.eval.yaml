@@ -1,0 +1,24 @@
+datasets:
+  - name: hr-agent_dg
+    file: ./datasets/hr-agent/hr-agent_dg.jsonl
+evaluators:
+  - name: hr-agent
+    source: ./evaluators/hr-agent/rubric_dimensions.json
+evals:
+  - name: hr-agent
+    description: Rubric evaluation for hr-agent (source choice, grounding, citations, confidential data)
+    dataset: hr-agent_dg
+    evaluationLevel: turn
+    evaluators:
+      - evaluator: hr-agent
+        initializationParameters:
+          model: gpt-5.4-mini
+        # Pass the full agent output (including tool calls) as the response, so the
+        # judge can see which source was used. With the default mapping it only sees
+        # the final text and source_selection would always score low.
+        dataMapping:
+          query: "{{item.query}}"
+          response: "{{sample.output_items}}"
+    target:
+      type: agent
+      name: hr-agent
