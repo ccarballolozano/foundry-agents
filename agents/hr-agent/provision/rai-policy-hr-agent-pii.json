@@ -1,0 +1,112 @@
+{
+  "properties": {
+    "basePolicyName": "Microsoft.DefaultV2",
+    "mode": "Default",
+    "contentFilters": [
+      {
+        "name": "Hate",
+        "source": "Prompt",
+        "blocking": true,
+        "enabled": true,
+        "severityThreshold": "Medium"
+      },
+      {
+        "name": "Hate",
+        "source": "Completion",
+        "blocking": true,
+        "enabled": true,
+        "severityThreshold": "Medium"
+      },
+      {
+        "name": "Sexual",
+        "source": "Prompt",
+        "blocking": true,
+        "enabled": true,
+        "severityThreshold": "Medium"
+      },
+      {
+        "name": "Sexual",
+        "source": "Completion",
+        "blocking": true,
+        "enabled": true,
+        "severityThreshold": "Medium"
+      },
+      {
+        "name": "Selfharm",
+        "source": "Prompt",
+        "blocking": true,
+        "enabled": true,
+        "severityThreshold": "Medium"
+      },
+      {
+        "name": "Selfharm",
+        "source": "Completion",
+        "blocking": true,
+        "enabled": true,
+        "severityThreshold": "Medium"
+      },
+      {
+        "name": "Violence",
+        "source": "Prompt",
+        "blocking": true,
+        "enabled": true,
+        "severityThreshold": "Medium"
+      },
+      {
+        "name": "Violence",
+        "source": "Completion",
+        "blocking": true,
+        "enabled": true,
+        "severityThreshold": "Medium"
+      },
+      {
+        "name": "Jailbreak",
+        "source": "Prompt",
+        "blocking": true,
+        "enabled": true
+      },
+      {
+        "name": "Protected Material Text",
+        "source": "Completion",
+        "blocking": true,
+        "enabled": true
+      },
+      {
+        "name": "Protected Material Code",
+        "source": "Completion",
+        "blocking": true,
+        "enabled": true
+      },
+      {
+        "name": "Indirect Attack",
+        "source": "Prompt",
+        "blocking": false,
+        "enabled": false
+      },
+      {
+        "name": "Indirect Attack Spotlighting",
+        "source": "Prompt",
+        "blocking": false,
+        "enabled": false
+      },
+      {
+        "name": "Phone Number Protection",
+        "source": "Completion",
+        "blocking": true,
+        "enabled": true
+      },
+      {
+        "name": "Email Protection",
+        "source": "Completion",
+        "blocking": true,
+        "enabled": true
+      },
+      {
+        "name": "Address Protection",
+        "source": "Completion",
+        "blocking": true,
+        "enabled": true
+      }
+    ]
+  }
+}

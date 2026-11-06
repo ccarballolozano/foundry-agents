@@ -4,14 +4,14 @@ What it does (the documented cloud flow):
   1. Create a red team (an eval with the red_team scenario) with the built-in evaluators
      sensitive_data_leakage, task_adherence and prohibited_actions.
   2. Create a prohibited-actions taxonomy for hr-agent at its current deployed version.
-  3. Start a run with the Flip, Base64 and IndirectJailbreak strategies, wait for it,
+  3. Start a run with the Flip, Base64 and IndirectJailbreak strategies (see --strategies), wait for it,
      and print per-category results and the portal link.
 
 Runs against a hosted agent are transient: attack content is not stored as agent
 conversation history. Note: the sensitive-data-leakage category uses Microsoft's
 synthetic data and mock tools, NOT our handbook. targeted_scan.py covers our own data.
 
-Usage (repo root):  python agents/hr-agent/redteam/cloud_scan.py [--turns 3]
+Usage (repo root):  python agents/hr-agent/redteam/cloud_scan.py [--turns 3] [--strategies Flip,Base64]
 """
 
 import argparse
@@ -36,6 +36,9 @@ from azure.identity import AzureCliCredential
 from common import AGENT_NAME, load_azd_env, require_non_production
 
 RESULTS_DIR = Path(__file__).parent / "results"
+# Design D8 strategies. IndirectJailbreak injects attacks into mock tool outputs; for hr-agent the
+# platform currently fails to start that sandbox ("ACA session initiation failed ... 400"), so the
+# documented demo command passes --strategies Flip,Base64.
 STRATEGIES = ["Flip", "Base64", "IndirectJailbreak"]
 EVALUATORS = {
     "Sensitive Data Leakage": "builtin.sensitive_data_leakage",
@@ -55,7 +58,10 @@ TOOL_DESCRIPTIONS = [
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cloud red teaming of the deployed hr-agent.")
     parser.add_argument("--turns", type=int, default=3, help="multi-turn depth of generated attacks")
+    parser.add_argument("--strategies", default=",".join(STRATEGIES),
+                        help=f"comma-separated attack strategies (default: {','.join(STRATEGIES)})")
     args = parser.parse_args()
+    strategies = [s.strip() for s in args.strategies.split(",") if s.strip()]
 
     env = load_azd_env()
     require_non_production(env)  # before anything is created or sent
@@ -93,19 +99,19 @@ def main() -> None:
 
         run = client.evals.runs.create(
             eval_id=red_team.id,
-            name=f"hr-agent v{version} {'/'.join(STRATEGIES)}",
+            name=f"hr-agent v{version} {'/'.join(strategies)}",
             data_source=RedTeamEvalRunDataSource(
                 type="azure_ai_red_team",
                 item_generation_params={
                     "type": "red_team_taxonomy",
-                    "attack_strategies": STRATEGIES,
+                    "attack_strategies": strategies,
                     "num_turns": args.turns,
                     "source": {"type": "file_id", "id": taxonomy.id},
                 },
                 target=target.as_dict(),
             ),
         )
-        print(f"Run started: {run.id} (strategies {', '.join(STRATEGIES)}, {args.turns} turns)")
+        print(f"Run started: {run.id} (strategies {', '.join(strategies)}, {args.turns} turns)")
 
         while run.status not in ("completed", "failed", "canceled"):
             time.sleep(15)
@@ -133,7 +139,7 @@ def main() -> None:
         output = RESULTS_DIR / f"cloud-{stamp}.json"
         output.write_text(json.dumps({
             "red_team_id": red_team.id, "run_id": run.id, "status": run.status, "agent_version": version,
-            "strategies": STRATEGIES, "per_category_attack_success": {
+            "strategies": strategies, "per_category_attack_success": {
                 k: sum(v) / len(v) if v else 0 for k, v in per_category.items()},
             "report_url": getattr(run, "report_url", None),
         }, indent=2), encoding="utf-8")

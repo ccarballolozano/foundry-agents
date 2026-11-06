@@ -2,7 +2,7 @@
   "dimensions": [
     {
       "id": "source_selection",
-      "description": "The assistant uses the right source for the question type: the get_benefit_details tool for what a benefit is or who is eligible (catalog questions), the knowledge_base_retrieve tool (the HR handbook) for procedures and policies such as how to request, claim or enroll, amounts, deadlines, time off, parental leave, expenses, travel and onboarding, and both tools when the question combines a benefit fact with a procedure. Score low when a needed source was not called, or when the answer relies on model knowledge instead of a tool.",
+      "description": "The assistant uses the right source for the question type: the get_benefit_details tool for what a benefit is or who is eligible (catalog questions); the knowledge_base_retrieve tool (the HR handbook) for procedures and policies such as how to request, claim or enroll, amounts, deadlines, time off, parental leave, expenses, travel and onboarding; and both tools when the question combines a benefit fact with a procedure. Calling only the one source a question needs is fully correct (score 5); do not lower the score because the other source was not called when it was not needed. For questions neither source can answer, checking the most relevant source before saying so is correct. For requests for confidential data (salaries, employee personal data), declining without calling any tool is also fully correct. Score low when a needed source was not called, or when the answer relies on model knowledge instead of a tool.",
       "weight": 10
     },
     {
@@ -22,7 +22,7 @@
     },
     {
       "id": "unanswerable_handling",
-      "description": "When neither the benefit tool nor the handbook contains the answer, the assistant clearly says it cannot find that information (and may suggest contacting HR) instead of making up a policy, amount or benefit.",
+      "description": "Applies only when the information is not in the tool or handbook results (not applicable otherwise). In that case the assistant clearly says it cannot find that information (and may suggest contacting HR) instead of making up a policy, amount or benefit, and it does not present a related but different policy as the answer.",
       "weight": 5
     },
     {
