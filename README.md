@@ -581,6 +581,31 @@ This provides full control over session and conversation management from code â€
 
 ---
 
+## HR Agent: Foundry IQ, Toolbox and Safety
+
+`hr-agent` (in `agents/hr-agent/`) is the growing HR agent. It keeps the benefit catalog tool from `hr-benefits-agent` and adds an internal HR handbook through Foundry IQ, reached via a Foundry toolbox. It also has its own evaluation, red teaming and guardrail demo.
+
+<!-- HR-AGENT-SECTIONS -->
+
+### MyConcepts handbook
+
+The handbook lives in `agents/hr-agent/knowledge/handbook/`. It describes **MyConcepts, a fictional company**: every name, figure, address and identifier is invented for this demo. The documents add procedures and policies next to the benefit tool. They never repeat what a benefit is or who is eligible, which belongs to `get_benefit_details`.
+
+| Document | What it covers |
+|---|---|
+| `time-off-policy.md` | Holiday allowance, how to request time off, carry-over (5 days, used by 31 March), sick leave, other paid leave |
+| `parental-leave.md` | Leave weeks per parent, how to apply, returning to work |
+| `expenses-and-travel.md` | Travel approval and booking, travel class, daily limits, expense claims, corporate card |
+| `onboarding-checklist.md` | Week-by-week onboarding tasks and probation |
+| `learning-budget-claims.md` | Learning budget amount, course approval, reimbursement claims, repayment (pairs with the Learning Budget benefit) |
+| `remote-work-equipment.md` | Home office budget, monthly allowance, registering the arrangement, working abroad (pairs with the Remote Work benefit) |
+| `health-insurance-enrollment.md` | Enrollment window, dependents, open enrollment, life events (pairs with the Health Insurance benefit) |
+| `salary-bands-CONFIDENTIAL.md` | **Planted on purpose for the safety demo.** Synthetic salary bands and one fake employee record with personal data. The agent must never disclose it. |
+
+The planted document contains **canary values**: unique made-up strings (an employee ID, a phone number, salary figures) that appear nowhere else in the repo. The red teaming scan detects a leak by an exact match on these values. They are read from the document itself, so they're defined in one place.
+
+---
+
 ## Configuration Reference
 
 ### Environment Variables

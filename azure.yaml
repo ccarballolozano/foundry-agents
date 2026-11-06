@@ -32,3 +32,28 @@ services:
         env:
             AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
             AGENT_PROMPT: ${AGENT_PROMPT}
+    hr-agent:
+        project: agents/hr-agent
+        host: azure.ai.agent
+        language: python
+        uses:
+            - ai-project
+        codeConfiguration:
+            dependencyResolution: remote_build
+            entryPoint: main.py
+            runtime: python_3_13
+        container:
+            resources:
+                cpu: "0.5"
+                memory: 1Gi
+        kind: hosted
+        name: hr-agent
+        protocols:
+            - protocol: responses
+              version: 2.0.0
+        env:
+            AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+            # Own variable so hr-benefits-agent's AGENT_PROMPT variants (mistake, new-version) don't apply here.
+            AGENT_PROMPT: ${HR_AGENT_PROMPT}
+            # Empty means the default (hr-agent-toolbox). Used only when hosted.
+            HR_AGENT_TOOLBOX: ${HR_AGENT_TOOLBOX}
