@@ -1,0 +1,21 @@
+# hr-agent-toolbox: used by the HOSTED hr-agent.
+#
+# The `hr-kb` connection uses auth type `agentic-identity`, so the knowledge base
+# is called with hr-agent's own managed identity (no secret anywhere). A user
+# token sent to this toolbox is rejected on purpose.
+#
+# provision.py substitutes ${KB_MCP_ENDPOINT}, creates a new toolbox version only
+# when this definition changed, and promotes it to default. Agents use the
+# unversioned endpoint, so they pick up the new version without a redeploy.
+description: MyConcepts HR handbook (Foundry IQ knowledge base) for the hosted hr-agent
+tools:
+  - type: mcp
+    name: hr_handbook
+    server_label: hr_handbook
+    description: Search the MyConcepts HR handbook (procedures and policies). Returns passages with their source document.
+    server_url: ${KB_MCP_ENDPOINT}
+    project_connection_id: hr-kb
+    allowed_tools:
+      - knowledge_base_retrieve
+    # Read-only tool: no approval prompt. A future tool that changes data must use `always`.
+    require_approval: never

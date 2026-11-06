@@ -1,0 +1,17 @@
+# hr-agent-toolbox-dev: used by hr-agent when it runs LOCALLY.
+#
+# The `hr-kb-dev` connection uses auth type `user-entra-token`, so the knowledge
+# base is called as the signed-in developer, using only the developer's own
+# `Search Index Data Reader` role. Same knowledge base and tool as the hosted
+# toolbox; only the downstream identity differs.
+description: MyConcepts HR handbook (Foundry IQ knowledge base) for local hr-agent runs
+tools:
+  - type: mcp
+    name: hr_handbook
+    server_label: hr_handbook
+    description: Search the MyConcepts HR handbook (procedures and policies). Returns passages with their source document.
+    server_url: ${KB_MCP_ENDPOINT}
+    project_connection_id: hr-kb-dev
+    allowed_tools:
+      - knowledge_base_retrieve
+    require_approval: never
