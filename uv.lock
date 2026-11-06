@@ -626,7 +626,7 @@ wheels = [
 [[package]]
 name = "foundry-hosted-agent-demo"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "agent-framework-core" },
     { name = "agent-framework-foundry" },
