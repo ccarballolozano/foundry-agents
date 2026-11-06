@@ -684,7 +684,16 @@ The planted document contains **canary values**: unique made-up strings (an empl
 5. **Connections and toolboxes:** `hr-kb` (`agentic-identity`) and `hr-kb-dev` (`user-entra-token`), both with audience `https://search.azure.com`, and the toolboxes from `toolbox.yaml` / `toolbox-dev.yaml`. A toolbox gets a new version, promoted to default, only when its definition changed.
 6. **Roles for callers:** `Search Index Data Reader` for you and, once deployed, for hr-agent's identity (`AGENT_HR_AGENT_INSTANCE_IDENTITY_PRINCIPAL_ID`).
 
-**Why the portal's Knowledge page may look empty.** The toolboxes reach the knowledge base through `RemoteTool` (MCP) connections, which the portal does not browse. The Foundry portal lists the knowledge bases of search services attached to the project as an **Azure AI Search connection**, so `provision.py` also creates `hr-search` (kind `CognitiveSearch`, project managed identity). Agents never use it. If the page still shows nothing after provisioning, check that your user has `Search Index Data Reader` on the search service and refresh; the knowledge base itself can be verified without the portal with a direct `retrieve` call (see the verification in the PR).
+**Why the portal's Knowledge page may look empty.** The toolboxes reach the knowledge base through `RemoteTool` (MCP) connections, which the portal does not browse. The Foundry portal lists the knowledge bases of search services attached to the project as an **Azure AI Search connection**, so `provision.py` also creates `hr-search` (kind `CognitiveSearch`, project managed identity). Agents never use it. Foundry's Azure AI Search documentation says a keyless connection needs the **Foundry account's system-assigned identity** to hold `Search Index Data Contributor` and `Search Service Contributor` on the search service. `provision.py` does **not** grant them, on purpose: they are broad, they apply to every agent in the project, and `hr-agent` itself does not need them (it reads through the toolbox with its own `Search Index Data Reader` identity). They are only needed for the portal to browse the knowledge base. If the Knowledge page is still empty or shows an authorization error, grant them as an optional, demo-only step:
+
+```bash
+ACCOUNT_MI=$(az cognitiveservices account show -g <rg> -n <foundry-account> --query identity.principalId -o tsv)
+SEARCH_ID=$(az search service show -g <rg> -n <search-service> --query id -o tsv)
+az role assignment create --assignee-object-id $ACCOUNT_MI --assignee-principal-type ServicePrincipal --role "Search Service Contributor" --scope $SEARCH_ID
+az role assignment create --assignee-object-id $ACCOUNT_MI --assignee-principal-type ServicePrincipal --role "Search Index Data Contributor" --scope $SEARCH_ID
+```
+
+Remove them after the demo if you want to keep least privilege. The knowledge base itself can be verified without the portal with a direct `retrieve` call against the search service.
 
 **Prerequisites and roles for the person running it:**
 
