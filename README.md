@@ -120,8 +120,13 @@ foundry-hosted-agent-demo/
 ├── pyproject.toml                   # Project + dependency definition (used by uv)
 ├── uv.lock                          # Pinned dependency versions (used by uv sync)
 ├── test_multiturn.py                # Two-turn conversation via Azure AI Projects SDK
+├── docs/
+│   └── azure-search-in-foundry.md   # Cited terms, options and a tested step-by-step guide for Azure AI Search in Foundry
 ├── scripts/
-│   └── generate_trace_traffic.sh    # Generates varied traffic for observability
+│   ├── generate_trace_traffic.sh    # Generates varied traffic for observability
+│   ├── use-guardrail-manifest.sh    # Renders azure-with-guardrail.yaml with policy IDs from the azd env
+│   ├── probe-guardrail.sh           # Sends probe prompts and reports what the guardrail blocked
+│   └── demo-agent-identity.sh       # Revokes and restores the agent's role to show per-agent identity
 └── agents/
     ├── hr-agent/                    # The growing HR agent: tool + Foundry IQ handbook via a toolbox
     │   ├── main.py / local.py       # Hosted entry point (agent factory) / local runner
@@ -618,7 +623,7 @@ This provides full control over session and conversation management from code �
 
 - [How it fits together](#how-it-fits-together)
 - [MyConcepts handbook](#myconcepts-handbook)
-- [Two ways to reach Azure AI Search, and why we use Foundry IQ](#two-ways-to-reach-azure-ai-search-from-foundry-and-why-we-use-foundry-iq)
+- [Azure AI Search in Foundry: options, terms and what we can show](#azure-ai-search-in-foundry-options-terms-and-what-we-can-show)
 - [Provision the knowledge stack](#provision-the-knowledge-stack)
 - [Run and deploy hr-agent](#run-and-deploy-hr-agent)
 - [Add a governed tool without a redeploy](#add-a-governed-tool-without-a-redeploy)
@@ -674,27 +679,15 @@ The handbook lives in `agents/hr-agent/knowledge/handbook/`. It describes **MyCo
 
 The planted document contains **canary values**: unique made-up strings (an employee ID, a phone number, salary figures) that appear nowhere else in the repo. The red teaming scan detects a leak by an exact match on these values. They are read from the document itself, so they're defined in one place.
 
-### Two ways to reach Azure AI Search from Foundry, and why we use Foundry IQ
+### Azure AI Search in Foundry: options, terms and what we can show
 
-Foundry has two ways for an agent to use Azure AI Search. They look similar in the portal and use different connections, which is why the portal's **Knowledge** page can look empty while the agent clearly retrieves from Azure Search.
+Foundry documents four ways to use Azure AI Search from an agent: a **Foundry IQ knowledge base** for a prompt agent, the same knowledge base for a **hosted agent through a toolbox** (what `hr-agent` uses), the **Azure AI Search tool** on a single index, and a knowledge base called from your own code. They use different connection kinds and identities, which is why the Foundry portal's Knowledge page can look empty while the agent clearly retrieves from Azure Search.
 
-| | **Foundry IQ knowledge base** (what `hr-agent` uses) | **Azure AI Search tool** |
-|---|---|---|
-| What the agent calls | A **knowledge base** (`knowledge_base_retrieve`, over MCP) | A **search index** by name (`index_name`) |
-| What does the retrieval | Agentic retrieval: an LLM plans sub-queries, hybrid vector + keyword search, semantic reranking, references per passage | One query against the index (simple, vector, semantic or hybrid) |
-| What you build | A knowledge source (here: blob storage) and a knowledge base. Indexing, embeddings and sync are created and run for you | An index you design yourself: searchable text field, vector field, a retrievable URL field for citations |
-| Connection kind | `RemoteTool` (MCP endpoint of the knowledge base) | `CognitiveSearch` ("Azure AI Search" in Connected resources) |
-| Identity | Per call: `agentic-identity` (the agent's own) or `user-entra-token` (the developer's). Needs `Search Index Data Reader` | Project connection; keyless needs the Foundry **account** identity to hold `Search Index Data Contributor` and `Search Service Contributor` |
-| Appears in the portal | In the toolbox and agent **Tools**. The **Knowledge** page lists search services attached by a `CognitiveSearch` connection | Same connection, so it shows on the **Knowledge** page |
-| Status | Preview (`2026-08-01-preview`) | Generally documented, also usable through a toolbox |
+**Read [docs/azure-search-in-foundry.md](docs/azure-search-in-foundry.md)** for the terminology, the comparison, what is generally available and what is preview, why we chose this approach, and a **tested step-by-step list of what we can do and see**, with measured results. Every Foundry statement in it cites the official documentation. In short:
 
-**Why we chose the knowledge base through a toolbox:**
-- **Identity.** The `RemoteTool` connection lets us forward the *agent's own* identity per call, with one read-only role. The `CognitiveSearch` route would make the project's shared identity do the reading, with broader roles, for every agent. Per-agent identity is the point of the demo.
-- **Less to build and operate.** We upload Markdown files; Foundry IQ creates the index, skillset and indexer, and re-syncs on a schedule. With the search tool we would design the index and its vector fields ourselves.
-- **Better answers on policy questions.** Query planning and reranking come with the knowledge base, which the evaluation scores (handbook questions, citations).
-- **One governed endpoint.** The toolbox exposes it, and any later tool (for example another agent) is added the same way with no code change.
-
-**Why `provision.py` also creates a `CognitiveSearch` connection (`hr-search`):** it exists only so the portal's Knowledge page shows the knowledge base. No agent uses it. If you prefer not to grant the extra roles the portal needs, skip it: the agent works without it.
+- The knowledge base is reached through a `RemoteTool` connection and a toolbox, so the hosted agent reads with **its own** identity and one read-only role.
+- The preview parts we use are LLM query planning (`low` reasoning effort), the knowledge base MCP endpoint for Agent Service and the `RemoteTool` connection. The `azureBlob` knowledge source kind is generally available.
+- The knowledge base does **not** enforce per-user document permissions here, so any caller with the reader role can retrieve the confidential file.
 
 ### Provision the knowledge stack
 
@@ -707,16 +700,7 @@ Foundry has two ways for an agent to use Azure AI Search. They look similar in t
 5. **Connections and toolboxes:** `hr-kb` (`agentic-identity`) and `hr-kb-dev` (`user-entra-token`), both with audience `https://search.azure.com`, and the toolboxes from `toolbox.yaml` / `toolbox-dev.yaml`. A toolbox gets a new version, promoted to default, only when its definition changed.
 6. **Roles for callers:** `Search Index Data Reader` for you and, once deployed, for hr-agent's identity (`AGENT_HR_AGENT_INSTANCE_IDENTITY_PRINCIPAL_ID`).
 
-**Why the portal's Knowledge page may look empty.** The toolboxes reach the knowledge base through `RemoteTool` (MCP) connections, which the portal does not browse. The Foundry portal lists the knowledge bases of search services attached to the project as an **Azure AI Search connection**, so `provision.py` also creates `hr-search` (kind `CognitiveSearch`, project managed identity). Agents never use it. Foundry's Azure AI Search documentation says a keyless connection needs the **Foundry account's system-assigned identity** to hold `Search Index Data Contributor` and `Search Service Contributor` on the search service. `provision.py` does **not** grant them, on purpose: they are broad, they apply to every agent in the project, and `hr-agent` itself does not need them (it reads through the toolbox with its own `Search Index Data Reader` identity). They are only needed for the portal to browse the knowledge base. If the Knowledge page is still empty or shows an authorization error, grant them as an optional, demo-only step:
-
-```bash
-ACCOUNT_MI=$(az cognitiveservices account show -g <rg> -n <foundry-account> --query identity.principalId -o tsv)
-SEARCH_ID=$(az search service show -g <rg> -n <search-service> --query id -o tsv)
-az role assignment create --assignee-object-id $ACCOUNT_MI --assignee-principal-type ServicePrincipal --role "Search Service Contributor" --scope $SEARCH_ID
-az role assignment create --assignee-object-id $ACCOUNT_MI --assignee-principal-type ServicePrincipal --role "Search Index Data Contributor" --scope $SEARCH_ID
-```
-
-Remove them after the demo if you want to keep least privilege. The knowledge base itself can be verified without the portal with a direct `retrieve` call against the search service.
+**The portal's Knowledge page.** The docs say the Knowledge tab lets you "create or connect to an existing search service" and that Azure AI Search connections appear under Connected resources. They do not say how the tab decides what to list. Our **assumption** (not documented, not verified in the portal) is that it lists search services attached as an Azure AI Search connection, so `provision.py` also creates `hr-search` (kind `CognitiveSearch`). No agent uses it. The docs' extra roles (`Search Index Data Contributor`, `Search Service Contributor` on the Foundry account's identity) are documented for the **Azure AI Search tool**, not for this page, so `provision.py` does not grant them. See section 5 of [docs/azure-search-in-foundry.md](docs/azure-search-in-foundry.md).
 
 **Prerequisites and roles for the person running it:**
 
