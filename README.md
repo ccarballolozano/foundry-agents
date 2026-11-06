@@ -26,6 +26,8 @@ The agent bundled here — **HR Benefits Agent** — answers HR benefit question
 - [Troubleshooting](#troubleshooting)
 - [Extending](#extending)
 
+> **Looking for the previous demo layout?** The original single-folder layout (`src/foundry_hosted_agent_demo/`, with prompt variants selected by swapping imports) is available at tag `v1.0.0`.
+
 ---
 
 ## Architecture
@@ -56,7 +58,7 @@ graph LR
     FA --> RAI[Guardrails / RAI Policies]
 ```
 
-The same `agent.py` definition is used both for local execution and for the hosted deployment. When you run locally, the agent connects directly to Foundry's model endpoint. When you deploy, `azd` packages the code into a hosted agent that exposes a Responses API endpoint.
+The agent lives in `agents/hr-benefits-agent/`. The same `agent.py` definition is used both for local execution and for the hosted deployment. When you run locally, the agent connects directly to Foundry's model endpoint. When you deploy, `azd` packages the code into a hosted agent that exposes a Responses API endpoint.
 
 ---
 
@@ -109,30 +111,33 @@ foundry-hosted-agent-demo/
 ├── test_multiturn.py                # Two-turn conversation via Azure AI Projects SDK
 ├── scripts/
 │   └── generate_trace_traffic.sh    # Generates varied traffic for observability
-└── src/
-    └── foundry_hosted_agent_demo/
+└── agents/
+    └── hr-benefits-agent/           # One self-contained folder per agent (one azd service each)
         ├── main.py                  # Entry point for the hosted agent
         ├── local.py                 # Local runner (single hardcoded query)
-        ├── agent.py                 # Baseline agent definition
-        ├── agent_mistake.py         # Intentionally broken prompt (for evaluation demos)
-        ├── agent_new_version.py     # Updated system prompt ("Haahee!" closer)
+        ├── agent.py                 # Agent definition; loads the prompt chosen by AGENT_PROMPT
         ├── tools.py                 # Benefit lookup tool (with custom span)
-        ├── eval-improved.yaml       # Evaluation configuration
+        ├── prompts/
+        │   ├── baseline.md          # Default system prompt
+        │   ├── mistake.md           # Intentionally broken prompt (for evaluation demos)
+        │   └── new-version.md       # Updated system prompt ("Haahee!" closer)
         ├── requirements.txt         # Pinned deps (used by the remote build)
         ├── .agentignore             # Files excluded from the deployment package
         ├── .agent_configs/
         │   └── baseline/
-        │       ├── instructions.md  # Agent instructions snapshot (referenced by eval)
+        │       ├── instructions.md  # Agent instructions snapshot
         │       └── metadata.yaml
-        ├── datasets/
-        │   └── hr-benefits-agent-improved/
-        │       └── hr-benefits-agent_dg.jsonl
-        └── evaluators/
-            └── hr-benefits-agent/
-                └── rubric_dimensions.json
+        └── evals/
+            ├── azure.eval.yaml      # Evaluation configuration (azd ai eval)
+            ├── datasets/
+            │   └── hr-benefits-agent-improved/
+            │       └── hr-benefits-agent_dg.jsonl
+            └── evaluators/
+                └── hr-benefits-agent/
+                    └── rubric_dimensions.json
 ```
 
-> **Note:** `main.py` imports `create_agent` from `agent.py`. Swap that import to `agent_mistake` or `agent_new_version` for the demo scenarios described in [Update the Agent](#update-the-agent-system-prompt-iteration) and [Evaluate the Agent](#evaluate-the-agent).
+> **Note:** Each folder under `agents/` is self-contained and is packaged on its own by azd. Switch the system prompt with `AGENT_PROMPT` (see [Update the Agent](#update-the-agent-system-prompt-iteration) and [Evaluate the Agent](#evaluate-the-agent)); `main.py` never changes.
 
 ---
 
@@ -230,7 +235,7 @@ Requires the local server from Option A to be running in another terminal. The `
 **Option C — Quick smoke test script:**
 
 ```bash
-python src/foundry_hosted_agent_demo/local.py
+python agents/hr-benefits-agent/local.py
 ```
 
 This instantiates the agent via `create_agent()` and runs a single hard-coded query. Useful for the quickest possible check that credentials and the model endpoint work (uses the root `.env`).
@@ -245,7 +250,7 @@ Once you're satisfied with the local behavior, deploy the agent to Foundry so it
 azd deploy
 ```
 
-`azd` reads `azure.yaml`, packages `src/foundry_hosted_agent_demo/` (excluding files in `.agentignore`, like `.env`), and deploys it as a hosted agent. Dependencies are resolved with a **remote build** from `requirements.txt`. When deployment finishes, the output shows the agent playground URL and endpoint.
+`azd` reads `azure.yaml`, packages the `agents/hr-benefits-agent/` folder (excluding files in `.agentignore`, like `.env`), and deploys it as a hosted agent. Dependencies are resolved with a **remote build** from `requirements.txt`. When deployment finishes, the output shows the agent playground URL and endpoint.
 
 **Verify the deployment:**
 
@@ -303,38 +308,36 @@ After a session change or import from the Conversations Playground in the portal
 
 A core benefit of the hosted model is iterative improvement. You can change the agent's system prompt, redeploy, and observe the difference immediately.
 
-The repo includes `agent_new_version.py`, which adds a closing phrase to the instructions:
+The repo includes the `new-version` prompt variant (`agents/hr-benefits-agent/prompts/new-version.md`), which adds a closing phrase to the baseline instructions:
 
-```python
-# agent.py (baseline)
-"Do not invent benefit information. "
+```text
+# prompts/baseline.md (last line)
+Do not invent benefit information.
 
-# agent_new_version.py (updated)
-"Do not invent benefit information. "
-"Close always with saying Haahee!"
+# prompts/new-version.md (last two lines)
+Do not invent benefit information.
+Close always with saying Haahee!
 ```
+
+The prompt is chosen by the `AGENT_PROMPT` variable (`baseline` when unset or empty; an unknown value fails at startup and lists the available variants).
 
 **To apply the update:**
 
-1. Replace the import in `main.py`:
-
-   ```python
-   # from agent import create_agent        ← baseline
-   from agent_new_version import create_agent
-   ```
-
-2. Redeploy:
+1. Select the variant and redeploy:
 
    ```bash
-   azd deploy
+   azd env set AGENT_PROMPT new-version
+   azd deploy hr-benefits-agent
    ```
 
-3. Verify the new behavior:
+2. Verify the new behavior:
 
    ```bash
    azd ai agent invoke "Tell me about the Learning Budget."
    # The response now ends with "Haahee!"
    ```
+
+3. To go back to the baseline: `azd env set AGENT_PROMPT ""` and redeploy.
 
 4. Confirm the new version with `azd ai agent show hr-benefits-agent` — you'll see the version number increase.
 
@@ -400,33 +403,32 @@ Look for the `benefit.lookup` span in the trace viewer — clearly distinguishin
 
 ### Evaluate the Agent
 
-Foundry's evaluation framework lets you generate a test dataset, define rubrics, and score agent responses automatically.
+Foundry's evaluation framework lets you register a test dataset and rubric, then score agent responses automatically. It needs the `azure.ai.evaluations` azd extension:
+
+```bash
+azd extension install azure.ai.evaluations
+```
+
+The evaluation lives next to the agent in `agents/hr-benefits-agent/evals/`. `azure.eval.yaml` declares the dataset (15 curated test cases covering supported benefits, eligibility queries, unsupported benefit handling and mixed queries), the rubric evaluator and the target agent. Paths inside it are relative to the file.
 
 **Generate a test dataset (optional — the repo ships one):**
 
 ```bash
-azd ai agent eval generate \
-  --gen-instruction "Test this HR benefits agent for accurate benefit answers, appropriate tool use, and handling unsupported benefits." \
-  --eval-model gpt-5.4-mini \
-  --max-samples 15 \
-  --out-file eval-demo.yaml
+azd ai eval generate --dataset --target hr-benefits-agent --max-samples 15
 ```
 
-This generates a dataset of prompts using an evaluator model. The repo also includes a curated dataset at `datasets/hr-benefits-agent-improved/hr-benefits-agent_dg.jsonl` with 15 test cases covering supported benefits, eligibility queries, unsupported benefit handling, and mixed queries.
-
-**Run an evaluation:**
+**Register and run an evaluation (from the repo root):**
 
 ```bash
-azd ai agent eval update --config eval-improved.yaml
-azd ai agent eval run --config eval-improved.yaml
+azd ai eval create hr-benefits-agent --path agents/hr-benefits-agent/evals
+azd ai eval run start --path agents/hr-benefits-agent/evals
 ```
 
-- `eval update` uploads your **local** dataset and rubric files to Foundry (the version numbers in `eval-improved.yaml` are bumped on success).
-- `eval run` executes the evaluation and reports scores.
+- `eval create` publishes the local dataset and rubric to Foundry (new versions only when the files changed) and creates the eval.
+- `eval run start` evaluates the **latest deployed version** of `hr-benefits-agent` and reports scores. Run `eval create` again whenever you change files under `evals/`, otherwise the run uses stale data.
+- Inspect results with `azd ai eval run output list` or `azd ai eval run output export`.
 
-Run `eval update` first whenever you change files under `datasets/` or `evaluators/` — otherwise the run evaluates stale data.
-
-The evaluation config references the rubric dimensions defined in `evaluators/hr-benefits-agent/rubric_dimensions.json`:
+The rubric dimensions are defined in `evals/evaluators/hr-benefits-agent/rubric_dimensions.json`. The evaluator mapping in `azure.eval.yaml` passes the full agent output (including tool calls) as the response, so the judge can see whether `get_benefit_details` was called:
 
 | Dimension | Weight | What it checks |
 |---|---|---|
@@ -440,31 +442,30 @@ The evaluation config references the rubric dimensions defined in `evaluators/hr
 
 **Evaluate a broken agent to see failures:**
 
-The repo includes `agent_mistake.py`, whose system prompt instructs the agent _not_ to use the `get_benefit_details` tool:
+The repo includes the `mistake` prompt variant (`prompts/mistake.md`), whose system prompt instructs the agent _not_ to use the `get_benefit_details` tool:
 
-```python
-# agent_mistake.py
-"Do not use get_benefit_details tool."
+```text
+Do not use get_benefit_details tool.
 ```
 
 To see how evaluation surfaces this regression:
 
-1. Swap the import in `main.py`:
-
-   ```python
-   from agent_mistake import create_agent
-   ```
-
-2. Redeploy and run the evaluation:
+1. Select the variant and redeploy:
 
    ```bash
-   azd deploy
-   azd ai agent eval run --config eval-improved.yaml
+   azd env set AGENT_PROMPT mistake
+   azd deploy hr-benefits-agent
+   ```
+
+2. Run the evaluation:
+
+   ```bash
+   azd ai eval run start --path agents/hr-benefits-agent/evals
    ```
 
 3. The evaluation reports low scores on `tool_use_for_exact_policy_details` and `grounded_policy_answer` — clearly identifying that the agent is ignoring the tool. Check the failed cases in the portal (Traces view) to see the agent improvising instead of calling the tool.
 
-4. Restore the baseline (`from agent import create_agent`) and redeploy.
+4. Restore the baseline with `azd env set AGENT_PROMPT ""` and redeploy.
 
 ---
 
@@ -605,24 +606,26 @@ Remember: the **azd environment** covers deploy/invoke; the root **`.env`** cove
 
 ### Agent Variants
 
-| File | Purpose | System Prompt Difference |
+Prompt variants are Markdown files in `agents/hr-benefits-agent/prompts/`; the file name is the variant name.
+
+| Variant | Purpose | System Prompt Difference |
 |---|---|---|
-| `agent.py` | Baseline | Standard instructions |
-| `agent_mistake.py` | For evaluation regression demos | Tells agent _not_ to use the tool |
-| `agent_new_version.py` | Demonstrates prompt iteration | Adds "Close always with saying Haahee!" |
+| `baseline` (default) | Baseline | Standard instructions |
+| `mistake` | For evaluation regression demos | Tells agent _not_ to use the tool |
+| `new-version` | Demonstrates prompt iteration | Adds "Close always with saying Haahee!" |
 
-**To switch between agent versions:** edit the import in `main.py` to point to the desired module, then `azd deploy`.
+**To switch between variants:** `azd env set AGENT_PROMPT <variant>`, then `azd deploy hr-benefits-agent`. For local runs, set `AGENT_PROMPT` in the root `.env`.
 
-### Evaluation Configuration (`eval-improved.yaml`)
+### Evaluation Configuration (`evals/azure.eval.yaml`)
 
 | Field | Description |
 |---|---|
-| `agent.version` | Agent version to evaluate (bumped by each deploy) |
-| `dataset.local_uri` | Path to the JSONL test dataset |
-| `evaluators[].local_uri` | Path to the rubric dimensions JSON |
-| `options.eval_model` | Model used for evaluating responses |
-| `max_samples` | Maximum dataset samples to evaluate |
-| `trace_days` | Days of traces to include |
+| `datasets[].file` | Path to the JSONL test dataset (relative to the file) |
+| `evaluators[].source` | Path to the rubric JSON (`{"dimensions": [...]}`) |
+| `evals[].target` | Agent to evaluate (`hr-benefits-agent`, latest deployed version) |
+| `evals[].evaluationLevel` | `turn` (one query and response per row) |
+| `evals[].evaluators[].initializationParameters.model` | Judge model |
+| `evals[].evaluators[].dataMapping` | Maps dataset and agent output fields to the evaluator inputs |
 
 ---
 
@@ -649,13 +652,13 @@ Remember: the **azd environment** covers deploy/invoke; the root **`.env`** cove
 
 This project is designed to be extended with additional agents, tools, and demonstration scenarios. To add a new agent:
 
-1. **Create agent definition** — add a new `agent_[name].py` (or reuse the pattern from `agent.py`) under `src/foundry_hosted_agent_demo/`.
-2. **Add tools** — define new tools in `tools.py` (or a separate module) using the `@tool` decorator from `agent_framework`. Use `get_tracer()` spans for custom tracing.
-3. **Add a service** — add a new entry under `services:` in `azure.yaml`:
+1. **Create the agent folder** — copy `agents/hr-benefits-agent/` to `agents/<name>/`. Each agent is self-contained (`main.py`, `local.py`, `agent.py`, `tools.py`, `prompts/`, `evals/`, `requirements.txt`, `.agentignore`), so copying shared code such as `tools.py` is intentional.
+2. **Add tools** — define new tools in the agent's `tools.py` using the `@tool` decorator from `agent_framework`. Use `get_tracer()` spans for custom tracing.
+3. **Add a service** — add a new entry under `services:` in `azure.yaml`, one service per agent folder:
 
    ```yaml
    my-new-agent:
-       project: src/foundry_hosted_agent_demo
+       project: agents/my-new-agent
        host: azure.ai.agent
        language: python
        uses:
@@ -664,16 +667,17 @@ This project is designed to be extended with additional agents, tools, and demon
        name: my-new-agent
        codeConfiguration:
            dependencyResolution: remote_build
-           entryPoint: main_my_new_agent.py
+           entryPoint: main.py
            runtime: python_3_13
        protocols:
            - protocol: responses
              version: 2.0.0
        env:
            AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+           AGENT_PROMPT: ${AGENT_PROMPT}
    ```
 
-4. **Add evaluation data** — create a `datasets/` entry and an `evaluators/` rubric for the new agent, plus an eval config YAML.
-5. **Deploy and iterate** — use the same `azd deploy` / `azd ai agent invoke` / `azd ai agent monitor` / `azd ai agent eval run` workflow.
+4. **Add evaluation data** — put a dataset, rubric and `azure.eval.yaml` under `agents/my-new-agent/evals/`.
+5. **Deploy and iterate** — use the same `azd deploy <service>` / `azd ai agent invoke` / `azd ai agent monitor` / `azd ai eval run start --path agents/my-new-agent/evals` workflow. Note that the root `pyproject.toml` only drives the shared local `.venv`; each agent's `requirements.txt` is what the hosted agent installs, so keep them in step.
 
-The project structure and configuration patterns scale naturally — each agent is just another service definition and Python module pair with its own evaluation dataset and rubric.
+The project structure and configuration patterns scale naturally — each agent is just another folder and service definition with its own prompts, evaluation dataset and rubric.

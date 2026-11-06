@@ -1,0 +1,21 @@
+datasets:
+  - name: hr-benefits-agent_dg
+    file: ./datasets/hr-benefits-agent-improved/hr-benefits-agent_dg.jsonl
+evaluators:
+  - name: hr-benefits-agent
+    source: ./evaluators/hr-benefits-agent/rubric_dimensions.json
+evals:
+  - name: hr-benefits-agent
+    description: Rubric evaluation for hr-benefits-agent
+    dataset: hr-benefits-agent_dg
+    evaluationLevel: turn
+    evaluators:
+      - evaluator: hr-benefits-agent
+        initializationParameters:
+          model: gpt-5.4-mini
+        dataMapping:
+          query: "{{item.query}}"
+          response: "{{sample.output_items}}"
+    target:
+      type: agent
+      name: hr-benefits-agent
