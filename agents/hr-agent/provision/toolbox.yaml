@@ -19,3 +19,11 @@ tools:
       - knowledge_base_retrieve
     # Read-only tool: no approval prompt. A future tool that changes data must use `always`.
     require_approval: never
+  # it-agent over A2A v1.0 (GA `a2a` type; `azd ai toolbox` would only emit the preview v0.3 type).
+  # The `it-agent-a2a` connection is `agentic-identity`: hr-agent's own identity, which holds
+  # Foundry Agent Consumer on it-agent only. it-agent's tools only read, so no approval prompt.
+  # provision.py leaves this entry out until it-agent is deployed with A2A.
+  # The toolbox exposes it as the MCP tool `it-agent-a2a___SendMessage`, described by it-agent's agent card.
+  - type: a2a
+    a2a_version: "1.0"
+    project_connection_id: it-agent-a2a
