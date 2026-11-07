@@ -70,3 +70,60 @@ services:
             AGENT_PROMPT: ${HR_AGENT_PROMPT}
             # Empty means the default (hr-agent-toolbox). Used only when hosted.
             HR_AGENT_TOOLBOX: ${HR_AGENT_TOOLBOX}
+            # Keep every trace. Without this, the hosting server's telemetry library samples at
+            # about 5 spans per second and drops whole agent runs from busy requests.
+            OTEL_TRACES_SAMPLER: microsoft.fixed_percentage
+            OTEL_TRACES_SAMPLER_ARG: "1.0"
+    it-agent:
+        # Built with LangChain/LangGraph (the IT team's choice); hosted like the other agents.
+        project: agents/it-agent
+        host: azure.ai.agent
+        language: python
+        uses:
+            - ai-project
+        codeConfiguration:
+            dependencyResolution: remote_build
+            entryPoint: main.py
+            runtime: python_3_13
+        container:
+            resources:
+                cpu: "0.5"
+                memory: 1Gi
+        kind: hosted
+        name: it-agent
+        # The container serves only /responses. Foundry serves A2A and the agent card in front of it.
+        protocols:
+            - protocol: responses
+              version: 2.0.0
+        agentEndpoint:
+            protocols:
+                - responses
+                - a2a
+            authorizationSchemes:
+                - type: Entra
+        # Sent to calling models as tool context: plain descriptions, no instructions.
+        agentCard:
+            description: IT onboarding assistant for MyConcepts. Answers which standard IT equipment a role receives, and which accounts and access a role gets with the steps to set them up.
+            version: "1.0"
+            skills:
+                - id: standard-equipment
+                  name: Standard equipment
+                  description: The standard laptop and peripherals a role (software engineer, consultant or sales) receives, and how they are delivered.
+                  tags: [it, onboarding, equipment]
+                  examples:
+                      - What laptop does a software engineer get?
+                - id: access-setup
+                  name: Accounts and access setup
+                  description: The accounts, applications and access a role gets, and the steps to set them up in the first week.
+                  tags: [it, onboarding, access]
+                  examples:
+                      - Which accounts does a consultant get and how do I set them up?
+        env:
+            PYTHONNOUSERSITE: "1"
+            AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+            # Own variable, like HR_AGENT_PROMPT, so other agents' variants don't apply here.
+            AGENT_PROMPT: ${IT_AGENT_PROMPT}
+            # Keep every trace. Without this, the hosting server's telemetry library samples at
+            # about 5 spans per second and drops whole agent runs from busy requests.
+            OTEL_TRACES_SAMPLER: microsoft.fixed_percentage
+            OTEL_TRACES_SAMPLER_ARG: "1.0"
