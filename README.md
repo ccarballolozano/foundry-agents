@@ -10,7 +10,7 @@ The agents bundled here answer HR questions for the fictional company MyConcepts
 |---|---|---|---|
 | `hr-benefits-agent` | `agents/hr-benefits-agent/` | **Frozen baseline.** Not changed by later work, so you can always compare against it | One in-memory tool (`get_benefit_details`), prompt variants, tracing, evaluation, guardrails |
 | `hr-agent` | `agents/hr-agent/` | **The growing HR agent** | The same tool, plus the MyConcepts handbook through Foundry IQ and a Foundry toolbox with per-agent identity; its own evaluation, red teaming and guardrail before-and-after. See [HR Agent: Foundry IQ, Toolbox and Safety](#hr-agent-foundry-iq-toolbox-and-safety) |
-| `<domain>-agent` (future) | `agents/<domain>-agent/` | Further agents, for example an `it-agent` | Plug into a toolbox (for example over agent-to-agent) without code changes |
+| `it-agent` | `agents/it-agent/` | **The IT team's agent, built with LangGraph** | Another framework on the same hosted runtime, identity and tracing; exposed to other agents over A2A. See [IT Agent: LangGraph, A2A and Tracing](#it-agent-langgraph-a2a-and-tracing) |
 
 ---
 
@@ -31,6 +31,7 @@ The agents bundled here answer HR questions for the fictional company MyConcepts
   - [Query the Agent via REST API](#query-the-agent-via-rest-api)
   - [Explore Multiturn Conversations](#explore-multiturn-conversations)
 - [HR Agent: Foundry IQ, Toolbox and Safety](#hr-agent-foundry-iq-toolbox-and-safety)
+- [IT Agent: LangGraph, A2A and Tracing](#it-agent-langgraph-a2a-and-tracing)
 - [Configuration Reference](#configuration-reference)
 - [Troubleshooting](#troubleshooting)
 - [Extending](#extending)
@@ -126,8 +127,16 @@ foundry-hosted-agent-demo/
 │   ├── generate_trace_traffic.sh    # Generates varied traffic for observability
 │   ├── use-guardrail-manifest.sh    # Renders azure-with-guardrail.yaml with policy IDs from the azd env
 │   ├── probe-guardrail.sh           # Sends probe prompts and reports what the guardrail blocked
-│   └── demo-agent-identity.sh       # Revokes and restores the agent's role to show per-agent identity
+│   ├── demo-agent-identity.sh       # Revokes and restores the agent's role to show per-agent identity
+│   └── a2a_call.py                  # Calls a hosted agent directly over A2A v1.0 (a2a-sdk)
 └── agents/
+    ├── it-agent/                    # IT onboarding agent built with LangGraph (no evals/ on purpose)
+    │   ├── main.py / local.py       # Tracing + ResponsesHostServer(graph) / local runner
+    │   ├── agent.py                 # LangGraph agent (create_agent), credential, prompt variants
+    │   ├── tools.py                 # IT catalog: equipment and access lookups, each with a custom span
+    │   ├── prompts/baseline.md
+    │   ├── requirements.txt         # LangChain/LangGraph only, pinned
+    │   └── .agentignore
     ├── hr-agent/                    # The growing HR agent: tool + Foundry IQ handbook via a toolbox
     │   ├── main.py / local.py       # Hosted entry point (agent factory) / local runner
     │   ├── agent.py                 # Per-request agent: credential and toolbox chosen by hosting context
@@ -179,6 +188,8 @@ git clone <repo-url>
 cd foundry-hosted-agent-demo
 uv sync
 ```
+
+Then activate it (`source .venv/bin/activate`): the `python ...` commands in this README assume the activated environment. Alternatively, prefix them with `uv run`.
 
 `uv sync` creates `.venv/` and installs every Python dependency from `uv.lock` (including the `azure-ai-projects` SDK used by `test_multiturn.py` — the remote build during `azd deploy` installs its own copy on Azure's side from `requirements.txt`).
 
@@ -377,6 +388,25 @@ To revert, restore the original import in `main.py` and deploy again.
 Foundry provides built-in observability through the Monitoring / Traces views. Every agent invocation produces traces that show tool calls, model latencies, and the full request/response pipeline.
 
 > **Prerequisite for traces in the portal:** the Foundry project must have **monitoring enabled** (an Application Insights resource connected to the project). This is configured at project creation or in the project's settings in the portal. If your project was created without it, the Monitoring tab will simply show no data — **there is no error message telling you why**. The custom spans below land in the same pipeline, so they will also be invisible without it.
+
+> **If the project sends telemetry with Entra (identity-based ingestion), each hosted agent needs a role.** Check the auth type of the project's Application Insights connection:
+>
+> ```bash
+> azd ai connection list -o json | grep -B2 -A2 AppInsights
+> ```
+>
+> With `"authType": "ProjectManagedIdentity"`, Foundry's own `invoke_agent` span still arrives for every call, so the trace list looks normal. But the spans from the agent's own code (model calls, tool calls, custom spans) are sent with **that agent's identity**, and Application Insights rejects them until the identity holds **Monitoring Metrics Publisher** on the resource. Grant it once per agent, after its first deploy (an agent keeps its identity across redeploys):
+>
+> ```bash
+> APPI_ID=$(azd ai connection list -o json | python3 -c "import sys,json;t=sys.stdin.read();print(next(c['target'] for c in json.loads(t[t.find('['):]) if c.get('kind')=='AppInsights'))")
+> AGENT_PRINCIPAL=$(azd env get-value AGENT_IT_AGENT_INSTANCE_IDENTITY_PRINCIPAL_ID)   # or AGENT_HR_AGENT_..., AGENT_HR_BENEFITS_AGENT_...
+> az role assignment create --assignee-object-id "$AGENT_PRINCIPAL" --assignee-principal-type ServicePrincipal \
+>   --role "Monitoring Metrics Publisher" --scope "$APPI_ID"
+> ```
+>
+> Without it, the agent's console log (`azd ai agent monitor <agent>`) shows `Retryable server side error: Operation returned an invalid status 'Forbidden'`. With the default key-based connection, no role is needed. Sources: [Configure Microsoft Entra authentication for Foundry agent trace ingestion](https://learn.microsoft.com/azure/foundry/observability/how-to/trace-ingestion-entra-authentication) and the [hosted agent permissions reference](https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agent-permissions). Current `azd` versions don't assign this role on deploy (the `azure.ai.agents` extension removed it in `0.1.22-preview`).
+
+> **Sampling: keep every trace.** The hosting server's telemetry library (`microsoft-opentelemetry`) samples at about 5 spans per second unless `OTEL_TRACES_SAMPLER` is set. A busy request then loses its whole agent run (the `invoke_agent` span and every model and tool call inside it), while spans around it survive; kept spans show `itemCount` above 1 in Application Insights. `hr-agent` and `it-agent` set `OTEL_TRACES_SAMPLER: microsoft.fixed_percentage` and `OTEL_TRACES_SAMPLER_ARG: "1.0"` in their service `env`, so every trace is complete. `hr-benefits-agent` is the frozen baseline and keeps the default. See [Export hosted agent telemetry](https://learn.microsoft.com/azure/foundry/agents/how-to/configure-hosted-agent-telemetry) for the standard OpenTelemetry variables.
 
 **View live logs:**
 
@@ -648,6 +678,12 @@ graph LR
     A -- "local: az login" --> TBD[hr-agent-toolbox-dev]
     TB -- "connection hr-kb<br/>agentic-identity" --> KB
     TBD -- "connection hr-kb-dev<br/>user-entra-token" --> KB
+    TB -- "connection it-agent-a2a<br/>agentic-identity, A2A v1.0" --> IT
+    TBD -- "connection it-agent-a2a-dev<br/>user-entra-token, A2A v1.0" --> IT
+
+    subgraph "agents/it-agent (LangGraph, hosted)"
+        IT[it-agent<br/>A2A endpoint + agent card] --> ITT[equipment and access<br/>lookups]
+    end
 
     subgraph "Azure AI Search"
         KB[hr-handbook-kb<br/>knowledge base MCP] --> KS[hr-handbook-ks<br/>blob knowledge source]
@@ -657,7 +693,7 @@ graph LR
     REPO[knowledge/handbook/*.md] -- "provision.py sync" --> BLOB
 ```
 
-- **Two sources, chosen by question type.** `get_benefit_details` answers what a benefit is and who is eligible. The handbook knowledge base answers procedures and policies. Combined questions use both. Handbook answers cite the document, for example `(source: time-off-policy.md)`.
+- **Three sources, chosen by question type.** `get_benefit_details` answers what a benefit is and who is eligible. The handbook knowledge base answers procedures and policies. `it-agent`, reached over A2A, answers IT equipment and accounts for a role. Combined questions use more than one. Handbook answers cite the document, for example `(source: time-off-policy.md)`.
 - **Governed tools go through a toolbox.** The agent never calls the search service directly. It calls a Foundry toolbox, which calls the knowledge base's MCP endpoint (`knowledge_base_retrieve`, approval `never` because it only reads).
 - **The identity depends on where the agent runs, not on the code.** Hosted, `agent.py` uses `ManagedIdentityCredential` and `hr-agent-toolbox`. That toolbox's connection forwards **hr-agent's own identity**, and rejects a user token on purpose. Locally, it uses `AzureCliCredential` and `hr-agent-toolbox-dev`, whose connection forwards **your own sign-in**. No key or secret exists anywhere.
 - **A new agent per request.** `main.py` passes the `create_agent` factory to `ResponsesHostServer`, so every request gets its own credential and toolbox session.
@@ -770,7 +806,7 @@ Configuration (all optional):
 
 ### Add a governed tool without a redeploy
 
-The agent connects to the toolbox's unversioned endpoint, which always serves the toolbox's default version. To add a governed tool (for example, later, another agent over A2A):
+The agent connects to the toolbox's unversioned endpoint, which always serves the toolbox's default version. `it-agent` was added exactly this way, see [Call it-agent from hr-agent over A2A](#call-it-agent-from-hr-agent-over-a2a). To add a governed tool:
 
 1. Create a project connection for it (`azd ai connection create ...`).
 2. Add a tool entry to `provision/toolbox.yaml` that points at the connection.
@@ -808,7 +844,9 @@ Contrast with a shared key or one broad managed identity for every agent: you co
 | Cloud red team: `IndirectJailbreak`, sensitive-data-leakage category | **Not available** | Platform fails to start the sandbox (both agents) |
 | Cloud red team: prohibited actions, task adherence | **Show the mechanism, not the numbers** | False positives in spot checks |
 | Knowledge base visible on the portal's Knowledge page | **Check before the demo** | Needs the `hr-search` connection (created by `provision.py`); not verified visually |
-| Per-user document permissions, agent-to-agent | Out of scope | Listed as future work |
+| Agent-to-agent: hr-agent calls the LangGraph `it-agent` over A2A through its toolbox | **Show it** | Tool appears without a redeploy; role scoped to `it-agent` only. See [Call it-agent from hr-agent over A2A](#call-it-agent-from-hr-agent-over-a2a) |
+| One trace across both agents | **Show it** | The A2A hop keeps the trace ID; observed, not yet documented by Learn |
+| Per-user document permissions, on-behalf-of-user calls to `it-agent` | Out of scope | Listed as future work |
 
 ### Evaluate hr-agent
 
@@ -957,7 +995,180 @@ What we verified, on the hosted `hr-agent`, with each result reproduced under a 
 python agents/hr-agent/provision/provision.py --teardown
 ```
 
-This removes the toolboxes, the connections, the knowledge base and the knowledge source (with the index it created). It keeps the search service, storage account and embedding deployment, because they may be shared, and prints the commands to delete them. Run `provision.py` again to restore everything. The agent works again once ingestion finishes.
+This removes the toolboxes, the connections (including the two A2A connections to `it-agent`), the knowledge base and the knowledge source (with the index it created). `it-agent` stays deployed. It keeps the search service, storage account and embedding deployment, because they may be shared, and prints the commands to delete them. Run `provision.py` again to restore everything. The agent works again once ingestion finishes.
+
+---
+
+## IT Agent: LangGraph, A2A and Tracing
+
+`it-agent` (in `agents/it-agent/`) answers IT onboarding questions for MyConcepts employees: the standard equipment a role receives, and the accounts and access a role gets with the steps to set them up. The story: the IT team owns this agent and chose **LangGraph**. It shows that Foundry hosts an agent from another framework with the same runtime, identity and observability as the Agent Framework agents, and that other agents can call it over the open **Agent2Agent (A2A)** protocol.
+
+- [What it is](#what-it-is)
+- [Run it-agent locally](#run-it-agent-locally)
+- [Deploy it-agent](#deploy-it-agent)
+- [Call it-agent over A2A](#call-it-agent-over-a2a)
+- [Traces for it-agent](#traces-for-it-agent)
+- [Call it-agent from hr-agent over A2A](#call-it-agent-from-hr-agent-over-a2a)
+
+### What it is
+
+- **LangGraph, written like the samples.** `agent.py` builds the graph with `langchain.agents.create_agent` and a `ChatOpenAI` model that goes through the project's OpenAI endpoint. `main.py` hosts it with `ResponsesHostServer(graph)` from `langchain-azure-ai[hosting]`. There's no checkpointer: the Responses protocol passes the conversation history.
+- **The repo's conventions, not the samples' credential.** Hosted, it uses its own managed identity; locally, your `az login`. No `DefaultAzureCredential` chain. Prompt variants come from `AGENT_PROMPT` (hosted: the azd variable `IT_AGENT_PROMPT`). An unknown name fails at startup.
+- **Two read-only tools from an in-memory IT catalog** (`tools.py`): `get_standard_equipment` and `get_access_setup` for the roles `software engineer`, `consultant` and `sales`. Each emits a custom span (`it.equipment.lookup`, `it.access.lookup`) with the role as `it.role`. The catalog has no amounts or personal data and doesn't contradict the handbook (HR ships the laptop; account activation and MFA happen in week 1).
+- **It stays in its lane.** Unknown roles get the list of known roles; other IT topics get "no information"; HR topics (budgets, allowances, leave) are referred to HR.
+- **No evaluation, red teaming or guardrail.** That's deliberate: `hr-agent` already tells those stories, so `it-agent` has no `evals/` folder.
+
+### Run it-agent locally
+
+```bash
+python agents/it-agent/local.py                                         # the default equipment and access questions
+python agents/it-agent/local.py "What laptop does a sales person get?"  # your own question
+```
+
+Each answer prints the tools it called. To run it behind the hosting server, as it runs in Foundry:
+
+```bash
+azd ai agent run it-agent --no-client
+```
+
+```bash
+curl -s -X POST http://localhost:8088/responses -H 'Content-Type: application/json' \
+  -d '{"input": "What laptop does a consultant get?"}'
+```
+
+`azd ai agent run` builds its own virtual environment in `agents/it-agent/.venv` from `requirements.txt`. `httpx` is pinned there on purpose: an unpinned install picks the `httpx` 1.0 pre-release, which breaks LangGraph at startup.
+
+### Deploy it-agent
+
+```bash
+azd env set IT_AGENT_PROMPT ""     # once: empty means baseline
+azd deploy it-agent
+azd ai agent invoke it-agent "What laptop does a software engineer get?"
+```
+
+After the first deploy, grant its identity the telemetry role if your project uses identity-based telemetry (see [Observe Telemetry](#observe-telemetry-and-custom-traces)). Otherwise its own spans never reach Application Insights.
+
+The `it-agent` service in `azure.yaml` keeps the container on the Responses protocol only, and publishes both Responses and A2A on its Foundry endpoint:
+
+```yaml
+protocols:
+    - protocol: responses
+      version: 2.0.0
+agentEndpoint:
+    protocols: [responses, a2a]
+    authorizationSchemes:
+        - type: Entra
+agentCard:
+    description: IT onboarding assistant for MyConcepts. ...
+    version: "1.0"
+    skills: [standard-equipment, access-setup]   # each with name, description, tags, examples
+```
+
+Foundry serves the A2A endpoint and the agent card in front of the container; `it-agent`'s code doesn't change. `azd deploy` applies `agentEndpoint` and `agentCard` directly. Two things you see in `azd` 1.37 that look wrong but aren't: `azd ai agent show` lists only the Responses endpoint, and `AGENT_IT_AGENT_A2A_ENDPOINT` stays empty. Check the agent card instead (next section).
+
+### Call it-agent over A2A
+
+All A2A URLs need a Microsoft Entra token. The caller needs **Foundry Agent Consumer** (or a broader Foundry role) on the project or on the agent ([Enable incoming A2A on a Foundry agent](https://learn.microsoft.com/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint)).
+
+Fetch the v1.0 agent card:
+
+```bash
+A2A_URL="$(azd env get-value FOUNDRY_PROJECT_ENDPOINT)/agents/it-agent/endpoint/protocols/a2a"
+TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+curl -s "$A2A_URL/agentCard/v1.0" -H "Authorization: Bearer $TOKEN"   # card with both skills, protocolVersion 1.0
+curl -s -o /dev/null -w '%{http_code}\n' "$A2A_URL/agentCard/v1.0"   # 401: anonymous access is rejected
+```
+
+Send one message the way another agent would, with the Python A2A SDK (non-streaming, A2A v1.0 negotiated from the v1.0 card):
+
+```bash
+uv run python scripts/a2a_call.py
+uv run python scripts/a2a_call.py "Which accounts does a sales person get?"
+```
+
+Use the script rather than `azd ai agent invoke --protocol a2a`: with `azd` 1.37 that command returns `The requested A2A operation is not supported for this hosted-agent target` for this agent, while the SDK call works. If no version is selected, Foundry serves the preview A2A v0.3, so always start from the `agentCard/v1.0` card or set `A2A-Version: 1.0`.
+
+### Traces for it-agent
+
+`main.py` calls `enable_auto_tracing(agent_id="it-agent", ...)` from `langchain-azure-ai` before it builds the graph, so LangChain and LangGraph spans join the hosting server's OpenTelemetry pipeline.
+
+- **One exporter.** Hosted, Foundry injects `APPLICATIONINSIGHTS_CONNECTION_STRING`, and the hosting server already exports every span to that Application Insights. The LangChain tracer only adds its spans to that pipeline; it configures Azure Monitor itself only when no connection string is set. Model and tool spans appear in pairs (`chat gpt-5.4-mini`, `execute_tool ...`) because two instrumentations write them, the OpenAI SDK's and LangChain's. Each pair has distinct span IDs; nothing is exported twice.
+- **No message content by default.** The hosting server records content unless told not to, so `main.py` sets both libraries from one switch, `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED` (off unless `true`). Spans show `[redacted]` where messages, tool arguments and results would be.
+- **Locally**, the library can't find Application Insights from a project whose connection uses Entra, so a plain local run prints a warning and runs without exporting. To send a local run's traces too, export the connection string in your shell only (never commit it):
+
+  ```bash
+  export APPLICATIONINSIGHTS_CONNECTION_STRING="$(az monitor app-insights component show --ids "$APPI_ID" --query connectionString -o tsv)"
+  azd ai agent run it-agent --no-client
+  ```
+
+  (`APPI_ID` as in [Observe Telemetry](#observe-telemetry-and-custom-traces).)
+
+Find `it-agent`'s spans: in the Foundry portal, open the agent's **Traces** tab. In Application Insights, filter on the agent name. Use `cloud_RoleName` or `microsoft.gen_ai.main_agent.name`, not `gen_ai.agent.id`, which holds the identity's ID when hosted:
+
+```bash
+az monitor app-insights query --ids "$APPI_ID" --offset 1h \
+  --analytics-query 'dependencies | where cloud_RoleName == "it-agent" | summarize spans = count() by name | order by spans desc' \
+  --query "tables[0].rows" -o tsv
+```
+
+You should see `invoke_agent it-agent`, `chat gpt-5.4-mini`, `execute_tool ...` and the custom `it.equipment.lookup` / `it.access.lookup` spans.
+
+**Record content for a debug session.** Locally, set `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true` in the root `.env`. Hosted, add `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED: "true"` to the `env` of the `it-agent` service and redeploy; remove it and redeploy when you're done. Content in traces is visible to anyone who can read the Application Insights resource.
+
+### Call it-agent from hr-agent over A2A
+
+`hr-agent` (Agent Framework) reaches `it-agent` (LangGraph) over A2A v1.0 **through its existing toolboxes**. Its code doesn't change: `agent.py`, `tools.py` and `main.py` contain no A2A client and no `it-agent` URL. Everything is configuration in `agents/hr-agent/provision/`.
+
+| Piece | Hosted `hr-agent` | Local `hr-agent` |
+|---|---|---|
+| Toolbox | `hr-agent-toolbox` | `hr-agent-toolbox-dev` |
+| Connection (`remote-a2a`, audience `https://ai.azure.com`) | `it-agent-a2a`, `agentic-identity` | `it-agent-a2a-dev`, `user-entra-token` |
+| Who `it-agent` sees as the caller | **hr-agent's own identity** | **you** (your `az login`) |
+| Role that allows the call | `Foundry Agent Consumer` on **`it-agent` only** (assigned by `provision.py`) | your own Foundry role on the project or `it-agent` (`provision.py` checks it and prints the command if missing) |
+| Tool name the model sees | `it-agent-a2a___SendMessage` | `it-agent-a2a-dev___SendMessage` |
+
+- **GA A2A, v1.0.** The toolbox entry is `type: a2a` with `a2a_version: "1.0"` and the connection. `provision.py` sends it through the toolbox REST API, because the `azd ai toolbox` flow only creates the preview `a2a_preview` (v0.3) tool.
+- **The tool name comes from the connection, the description from the agent card.** The toolbox exposes the A2A tool as `<connection>___SendMessage` and uses `it-agent`'s card description. So `hr-agent`'s prompt refers to "the it-agent tool (its name starts with it-agent-a2a)", which matches both toolboxes.
+- **No approval prompt.** `it-agent`'s tools only read. A future A2A target that changes data must get approval enforced by the runtime, not only by the prompt.
+- **Least privilege.** `hr-agent`'s identity holds Foundry Agent Consumer on the `it-agent` scope, not on the project, so it can call this one agent and nothing else. Check it:
+
+  ```bash
+  az role assignment list --assignee "$(azd env get-value AGENT_HR_AGENT_INSTANCE_IDENTITY_PRINCIPAL_ID)" --all \
+    --query "[?roleDefinitionName=='Foundry Agent Consumer'].scope" -o tsv
+  ```
+
+**Walkthrough: the tool first, then the prompt.**
+
+1. Deploy `it-agent` and check its A2A card (see [Call it-agent over A2A](#call-it-agent-over-a2a)).
+2. Run provisioning. It creates both A2A connections, a new version of each toolbox (promoted to default), and the role:
+
+   ```bash
+   uv run python agents/hr-agent/provision/provision.py
+   ```
+
+   If `it-agent` isn't deployed yet, the script says so and leaves the A2A tool out; the handbook keeps working. Run it again after `azd deploy it-agent`.
+3. **No redeploy:** ask the running `hr-agent` which tools it has. It now lists `it-agent-a2a___SendMessage`:
+
+   ```bash
+   azd ai agent invoke hr-agent --new-session "List the names of all the tools you can use, one per line, without calling any."
+   ```
+
+4. **The prompt change.** `prompts/baseline.md` tells `hr-agent` to hand IT equipment and accounts questions to `it-agent`, and to combine its answer with the handbook for onboarding questions. This is the only step that needs a redeploy:
+
+   ```bash
+   azd deploy hr-agent
+   azd ai agent invoke hr-agent --new-session "I start Monday as a consultant: what do I need to do in my first week, and which accounts will I get?"
+   ```
+
+   The answer gives the week-1 steps from the handbook (citing `onboarding-checklist.md`) and the accounts from `it-agent`. Both agents land in **one trace**: the trace ID `azd ai agent invoke` prints holds `hr-agent`'s `knowledge_base_retrieve` and A2A tool call, and `it-agent`'s spans for the request it served (`invoke_agent it-agent`, `it.access.lookup`). Filter that trace by `cloud_RoleName` to see one side. Learn doesn't document this propagation yet; it was observed in this project.
+
+Locally, the same questions go through `hr-agent-toolbox-dev` and your own sign-in:
+
+```bash
+python agents/hr-agent/local.py "What laptop will I get as a software engineer?"
+```
+
+**Roll back.** Remove the `a2a` entries from `toolbox.yaml` and `toolbox-dev.yaml` and run `provision.py` (it creates and promotes versions without them), then revert the prompt and redeploy `hr-agent`. `--teardown` deletes both A2A connections with the rest and leaves `it-agent` deployed; `hr-agent`'s role on `it-agent` is kept, and grants nothing without a connection.
 
 ---
 
@@ -976,6 +1187,9 @@ This removes the toolboxes, the connections, the knowledge base and the knowledg
 | `HR_AGENT_SEARCH_ENDPOINT`, `HR_AGENT_KB_MCP_ENDPOINT` | azd env | Written by `provision.py` |
 | `ENVIRONMENT_TIER` | azd env | `dev` or `test` marks a non-production environment. The red teaming scripts refuse to run otherwise |
 | `HR_BENEFITS_AGENT_RAI_POLICY_ID`, `HR_AGENT_RAI_POLICY_ID` | azd env | Full ARM ID of each agent's guardrail policy, used by `azure-with-guardrail.yaml` |
+| `IT_AGENT_PROMPT` | azd env | Prompt variant of the hosted `it-agent` (default `baseline`) |
+| `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG` | service `env` (`hr-agent`, `it-agent`) | `microsoft.fixed_percentage` / `1.0`: keep every trace instead of the default rate-limited sampling |
+| `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED` | `.env` / service `env` | `true` records message content in `it-agent`'s spans. Off by default; for debug sessions only |
 | `AGENT_HR_AGENT_INSTANCE_IDENTITY_PRINCIPAL_ID` | azd env | Written by `azd deploy hr-agent`. `provision.py` grants this identity read access to the handbook index |
 
 Remember: the **azd environment** covers deploy/invoke; the root **`.env`** covers the local Python scripts. Both need the same values.
@@ -987,6 +1201,7 @@ Remember: the **azd environment** covers deploy/invoke; the root **`.env`** cove
 | `requiredVersions` | Minimum azd + extension versions (enforced) |
 | `services.ai-project` | Foundry project integration (endpoint from env) |
 | `services.hr-benefits-agent` | The hosted agent service |
+| `services.it-agent` | The LangGraph agent. Adds `agentEndpoint` (publishes `responses` and `a2a`, Entra only) and `agentCard` (description and skills) for A2A |
 | `codeConfiguration.entryPoint` / `.runtime` | `main.py` / `python_3_13` |
 | `codeConfiguration.dependencyResolution` | `remote_build` — deps resolved on Azure's side from `requirements.txt` |
 | `policies` | *(optional)* RAI policy attached at inference time — see [Guardrails](#apply-guardrails) |
@@ -1028,6 +1243,8 @@ Prompt variants are Markdown files in `agents/hr-benefits-agent/prompts/`; the f
 | Local Python run: `KeyError: 'FOUNDRY_PROJECT_ENDPOINT'` | Root `.env` missing | `cp .env.example .env` and fill it in — the azd environment does not feed local scripts |
 | `azd deploy` outputs unresolved `${...}` placeholders | Variable missing from azd env | `azd env set FOUNDRY_PROJECT_ENDPOINT ...` etc., then re-deploy |
 | Monitoring tab in portal shows nothing | Project has no App Insights connected | Enable monitoring for the project in the portal; traces take a few minutes to appear |
+| Some requests have no `invoke_agent` or tool spans from the agent while others do; kept spans have `itemCount` > 1 | Default rate-limited sampling (about 5 spans per second) | Set `OTEL_TRACES_SAMPLER: microsoft.fixed_percentage` and `OTEL_TRACES_SAMPLER_ARG: "1.0"` in the service `env` and redeploy |
+| Traces show only `invoke_agent`, no model or tool spans; the agent log shows `Forbidden` from the Azure Monitor exporter | Identity-based telemetry, and the agent's identity lacks `Monitoring Metrics Publisher` | Grant the role to the agent's identity on the Application Insights resource, see [Observe Telemetry](#observe-telemetry-and-custom-traces) |
 | `azd ai agent monitor` has no session | No prior invocation | `azd ai agent invoke "..."` first, or pass `--session-id` |
 | All invocations fail with `content_filter` errors | Attached RAI policy too strict | Adjust policy thresholds in the portal, or remove `policies:` from `azure.yaml` and redeploy |
 | Everything looks right, still stuck | — | Run `azd ai agent doctor` — it validates local config, auth, project, roles, and hosted agents |

@@ -4,3 +4,5 @@
 .foundry/
 .env
 __pycache__/
+# Logs the azd agents extension writes in the working directory
+azd-ai-agents-*.log

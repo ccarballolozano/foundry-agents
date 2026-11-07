@@ -15,3 +15,9 @@ tools:
     allowed_tools:
       - knowledge_base_retrieve
     require_approval: never
+  # Same it-agent A2A tool. The `it-agent-a2a-dev` connection is `user-entra-token`: it-agent is
+  # called as the signed-in developer, with only the developer's own Foundry role.
+  # The toolbox exposes it as the MCP tool `it-agent-a2a-dev___SendMessage`, described by it-agent's agent card.
+  - type: a2a
+    a2a_version: "1.0"
+    project_connection_id: it-agent-a2a-dev

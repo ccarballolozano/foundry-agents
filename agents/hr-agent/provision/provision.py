@@ -4,14 +4,17 @@ Run from the repo root, signed in with `az login` and `azd auth login`:
 
     python agents/hr-agent/provision/provision.py              # create or update
     python agents/hr-agent/provision/provision.py --teardown   # remove knowledge objects, toolboxes, connections
+                                                               # (it-agent itself stays deployed)
 
 Steps, in order (each one checks what exists first and only changes what differs):
   1. Azure resources: search service, storage account + container, embedding deployment.
   2. Roles for the search service's identity (read the handbook blobs, call the models).
   3. Handbook sync: upload changed files, delete blobs that no longer exist locally.
   4. Knowledge source `hr-handbook-ks` and knowledge base `hr-handbook-kb`, then wait for ingestion.
-  5. Connections `hr-kb` / `hr-kb-dev` and toolboxes `hr-agent-toolbox` / `hr-agent-toolbox-dev`.
-  6. Roles for callers: the developer and, once deployed, hr-agent's own identity.
+  5. Connections `hr-kb` / `hr-kb-dev`, the A2A connections `it-agent-a2a` / `it-agent-a2a-dev`
+     (only once it-agent is deployed with A2A), and toolboxes `hr-agent-toolbox` / `hr-agent-toolbox-dev`.
+  6. Roles for callers: the developer and, once deployed, hr-agent's own identity (handbook index,
+     Foundry Agent Consumer on it-agent only, and telemetry ingestion when the project requires it).
 
 All names and endpoints come from the azd environment. Authentication is keyless
 (your Entra sign-in); no key or connection secret is read, stored or printed.
@@ -58,9 +61,23 @@ TOOLBOXES = {
     "hr-agent-toolbox-dev": ("toolbox-dev.yaml", "hr-kb-dev", "user-entra-token"),
 }
 
+# A2A: hr-agent reaches it-agent through its toolboxes. One connection per toolbox, same target.
+IT_AGENT = "it-agent"
+FOUNDRY_AUDIENCE = "https://ai.azure.com"
+A2A_CONNECTIONS = {
+    # toolbox name: (connection name, connection auth type)
+    "hr-agent-toolbox": ("it-agent-a2a", "agentic-identity"),
+    "hr-agent-toolbox-dev": ("it-agent-a2a-dev", "user-entra-token"),
+}
+
 ROLE_SEARCH_INDEX_DATA_READER = "Search Index Data Reader"
 ROLE_STORAGE_BLOB_DATA_READER = "Storage Blob Data Reader"
 ROLE_COGNITIVE_SERVICES_USER = "Cognitive Services User"
+# Role IDs, not names: the Foundry roles are being renamed and the ID never changes.
+ROLE_FOUNDRY_AGENT_CONSUMER = "eed3b665-ab3a-47b6-8f48-c9382fb1dad6"  # Foundry Agent Consumer
+ROLE_MONITORING_METRICS_PUBLISHER = "3913510d-42f4-4e42-8a64-420c390055eb"  # Monitoring Metrics Publisher
+ROLE_NAMES = {ROLE_FOUNDRY_AGENT_CONSUMER: "Foundry Agent Consumer",
+              ROLE_MONITORING_METRICS_PUBLISHER: "Monitoring Metrics Publisher"}
 
 credential = AzureCliCredential()
 pending_roles: list[str] = []  # commands for an admin, printed at the end
@@ -183,16 +200,17 @@ def ensure_embedding_deployment(env: dict[str, str]) -> None:
 def ensure_role(principal_id: str, principal_type: str, role: str, scope: str, who: str) -> None:
     existing = az("role", "assignment", "list", "--assignee", principal_id, "--role", role, "--scope", scope)
     short_scope = scope.split("/providers/")[-1]
+    label = ROLE_NAMES.get(role, role)
     if existing:
-        print(f"  {who}: {role} on {short_scope} already assigned")
+        print(f"  {who}: {label} on {short_scope} already assigned")
         return
     cmd = ["az", "role", "assignment", "create", "--assignee-object-id", principal_id,
            "--assignee-principal-type", principal_type, "--role", role, "--scope", scope]
     result = run(cmd, check=False)
     if result.returncode == 0:
-        print(f"  {who}: {role} on {short_scope} assigned")
+        print(f"  {who}: {label} on {short_scope} assigned")
     elif "AuthorizationFailed" in result.stderr or "does not have authorization" in result.stderr:
-        print(f"  {who}: {role} on {short_scope} PENDING (you may not assign this role)")
+        print(f"  {who}: {label} on {short_scope} PENDING (you may not assign this role)")
         pending_roles.append(" ".join(f'"{c}"' if " " in c else c for c in cmd))
     else:
         sys.exit(f"Role assignment failed: {result.stderr}")
@@ -205,14 +223,48 @@ def search_service_roles(env: dict[str, str], search: dict, storage: dict) -> No
     ensure_role(principal, "ServicePrincipal", ROLE_COGNITIVE_SERVICES_USER, foundry_id, "search identity")
 
 
-def caller_roles(env: dict[str, str], search: dict) -> None:
+def caller_roles(env: dict[str, str], search: dict, it_agent_ready: bool) -> None:
     developer = az("ad", "signed-in-user", "show")["id"]
     ensure_role(developer, "User", ROLE_SEARCH_INDEX_DATA_READER, search["id"], "developer")
+    if it_agent_ready:
+        check_developer_a2a_access(env, developer)
     agent = env.get("AGENT_HR_AGENT_INSTANCE_IDENTITY_PRINCIPAL_ID")
-    if agent:
-        ensure_role(agent, "ServicePrincipal", ROLE_SEARCH_INDEX_DATA_READER, search["id"], "hr-agent identity")
-    else:
+    if not agent:
         print("  hr-agent identity: pending, run this script again after `azd deploy hr-agent`")
+        return
+    ensure_role(agent, "ServicePrincipal", ROLE_SEARCH_INDEX_DATA_READER, search["id"], "hr-agent identity")
+    if it_agent_ready:
+        # Scoped to it-agent only, never the whole project: hr-agent may call this one agent.
+        ensure_role(agent, "ServicePrincipal", ROLE_FOUNDRY_AGENT_CONSUMER, it_agent_scope(env), "hr-agent identity")
+    telemetry = identity_telemetry_target()
+    if telemetry:
+        # Identity-based telemetry: spans from hr-agent's own code are sent with its identity.
+        ensure_role(agent, "ServicePrincipal", ROLE_MONITORING_METRICS_PUBLISHER, telemetry, "hr-agent identity")
+
+
+def it_agent_scope(env: dict[str, str]) -> str:
+    return f"{env['AZURE_AI_PROJECT_ID']}/agents/{IT_AGENT}"
+
+
+def identity_telemetry_target() -> str | None:
+    """The Application Insights resource ID when the project ingests telemetry with Entra, else None."""
+    for connection in azd_json("ai", "connection", "list"):
+        if connection.get("kind") == "AppInsights" and connection.get("authType") == "ProjectManagedIdentity":
+            return connection["target"]
+    return None
+
+
+def check_developer_a2a_access(env: dict[str, str], developer: str) -> None:
+    """Local runs call it-agent with your own token (it-agent-a2a-dev): check you may, without changing roles."""
+    response = foundry_request(env, "GET", f"agents/{IT_AGENT}/endpoint/protocols/a2a/agentCard/v1.0", api_version=None)
+    if response.status_code == 200:
+        print(f"  developer: can call {IT_AGENT} over A2A (needed for local hr-agent runs)")
+        return
+    command = (f"az role assignment create --assignee-object-id {developer} --assignee-principal-type User "
+               f"--role {ROLE_FOUNDRY_AGENT_CONSUMER} --scope {it_agent_scope(env)}")
+    print(f"  developer: can't call {IT_AGENT} over A2A ({response.status_code}); local hr-agent runs will fail "
+          "on IT questions. Needs Foundry Agent Consumer (or a broader Foundry role) on it-agent or the project")
+    pending_roles.append(command)
 
 
 # --- Step 3: handbook sync --------------------------------------------------------
@@ -423,7 +475,37 @@ def delete_knowledge_source(index_client: SearchIndexClient) -> None:
 SEARCH_CONNECTION = "hr-search"
 
 
-def ensure_connections_and_toolboxes(env: dict[str, str]) -> None:
+def it_agent_a2a_endpoint(env: dict[str, str]) -> str | None:
+    """it-agent's A2A base path, or None when it-agent is not deployed with the A2A protocol.
+
+    Built from the project endpoint: azd 1.37 leaves AGENT_IT_AGENT_A2A_ENDPOINT empty even when A2A is on.
+    """
+    response = foundry_request(env, "GET", f"agents/{IT_AGENT}")
+    if response.status_code == 404:
+        print(f"  {IT_AGENT} is not deployed: skipping the A2A tool (run `azd deploy {IT_AGENT}`, then this script)")
+        return None
+    if response.status_code != 200:
+        sys.exit(f"Reading agent {IT_AGENT} failed: {response.status_code} {response.text}")
+    protocols = (response.json().get("agent_endpoint") or {}).get("protocols") or []
+    if "a2a" not in protocols:
+        print(f"  {IT_AGENT} does not publish A2A (protocols: {protocols}): skipping the A2A tool")
+        return None
+    return f"{env['FOUNDRY_PROJECT_ENDPOINT'].rstrip('/')}/agents/{IT_AGENT}/endpoint/protocols/a2a"
+
+
+def ensure_a2a_connection(connection: str, auth_type: str, target: str, connections: dict) -> None:
+    expected_auth = {"agentic-identity": "AgenticIdentityToken", "user-entra-token": "UserEntraToken"}[auth_type]
+    existing = connections.get(connection)
+    if existing and existing.get("target") == target and existing.get("authType") == expected_auth:
+        print(f"  connection {connection} up to date")
+        return
+    azd("ai", "connection", "create", connection, "--kind", "remote-a2a", "--force", "--target", target,
+        "--auth-type", auth_type, "--audience", FOUNDRY_AUDIENCE)
+    print(f"  connection {connection} {'updated' if existing else 'created'} ({auth_type})")
+
+
+def ensure_connections_and_toolboxes(env: dict[str, str]) -> bool:
+    """Returns True when it-agent's A2A tool is part of the toolboxes."""
     kb_mcp = env["HR_AGENT_KB_MCP_ENDPOINT"]
     connections = {c["name"]: c for c in azd_json("ai", "connection", "list")}
 
@@ -440,6 +522,7 @@ def ensure_connections_and_toolboxes(env: dict[str, str]) -> None:
         print(f"  connection {SEARCH_CONNECTION} created (shows the knowledge base in the portal)")
     expected_auth = {"agentic-identity": "AgenticIdentityToken", "user-entra-token": "UserEntraToken",
                      "project-managed-identity": "ProjectManagedIdentity"}
+    a2a_target = it_agent_a2a_endpoint(env)
 
     for toolbox, (definition_file, connection, auth_type) in TOOLBOXES.items():
         existing = connections.get(connection)
@@ -451,12 +534,23 @@ def ensure_connections_and_toolboxes(env: dict[str, str]) -> None:
             print(f"  connection {connection} {'updated' if existing else 'created'} ({auth_type})")
 
         text = (HERE / definition_file).read_text(encoding="utf-8").replace("${KB_MCP_ENDPOINT}", kb_mcp)
-        ensure_toolbox(env, toolbox, yaml.safe_load(text))
+        definition = yaml.safe_load(text)
+        if a2a_target:
+            a2a_connection, a2a_auth = A2A_CONNECTIONS[toolbox]
+            ensure_a2a_connection(a2a_connection, a2a_auth, a2a_target, connections)
+        else:
+            # Keep the knowledge tools working until it-agent exists.
+            definition["tools"] = [t for t in definition["tools"] if t.get("type") != "a2a"]
+        ensure_toolbox(env, toolbox, definition)
+    return a2a_target is not None
 
 
-def foundry_request(env: dict[str, str], method: str, path: str, body: dict | None = None) -> httpx.Response:
-    token = credential.get_token("https://ai.azure.com/.default").token
-    url = f"{env['FOUNDRY_PROJECT_ENDPOINT'].rstrip('/')}/{path}?api-version={TOOLBOX_API_VERSION}"
+def foundry_request(env: dict[str, str], method: str, path: str, body: dict | None = None,
+                    api_version: str | None = TOOLBOX_API_VERSION) -> httpx.Response:
+    token = credential.get_token(f"{FOUNDRY_AUDIENCE}/.default").token
+    url = f"{env['FOUNDRY_PROJECT_ENDPOINT'].rstrip('/')}/{path}"
+    if api_version:
+        url += f"?api-version={api_version}"
     return httpx.request(method, url, json=body, timeout=60, headers={"Authorization": f"Bearer {token}"})
 
 
@@ -489,8 +583,12 @@ def teardown(env: dict[str, str]) -> None:
     for toolbox, (_, connection, _) in TOOLBOXES.items():
         response = foundry_request(env, "DELETE", f"toolboxes/{toolbox}")
         print(f"  toolbox {toolbox}: {'deleted' if response.status_code in (200, 204) else 'not found'}")
-        result = run(["azd", "ai", "connection", "delete", connection, "--force", "--no-prompt"], check=False)
-        print(f"  connection {connection}: {'deleted' if result.returncode == 0 else 'not found'}")
+        a2a_connection, _ = A2A_CONNECTIONS[toolbox]
+        for name in (connection, a2a_connection):
+            result = run(["azd", "ai", "connection", "delete", name, "--force", "--no-prompt"], check=False)
+            print(f"  connection {name}: {'deleted' if result.returncode == 0 else 'not found'}")
+    print(f"  {IT_AGENT} itself is left deployed; hr-agent's role on it is kept (it grants nothing without the "
+          "connection)")
 
     if env.get("HR_AGENT_SEARCH_ENDPOINT"):
         step("Teardown: knowledge base and knowledge source")
@@ -541,10 +639,10 @@ def main() -> None:
     ensure_knowledge_objects(env, storage, handbook_changed)
 
     step("5. Connections and toolboxes")
-    ensure_connections_and_toolboxes(env)
+    it_agent_ready = ensure_connections_and_toolboxes(env)
 
     step("6. Roles for callers")
-    caller_roles(env, search)
+    caller_roles(env, search, it_agent_ready)
 
     if pending_roles:
         step("ACTION NEEDED: role assignments you are not allowed to create")
