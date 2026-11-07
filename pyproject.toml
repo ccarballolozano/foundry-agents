@@ -21,6 +21,12 @@ dependencies = [
     # Evaluation and red teaming scripts
     "azure-ai-projects>=2.7.0,<2.8.0",
     "azure-ai-evaluation[redteam]>=1.18.11",
+    # it-agent (LangGraph); its requirements.txt pins what its hosted image installs
+    "langchain-azure-ai[hosting,opentelemetry]>=1.3.0",
+    "langchain>=1.4.9",
+    "langchain-openai>=1.7.4",
+    # Direct A2A call to a hosted agent (scripts/a2a_call.py)
+    "a2a-sdk>=1.3.0",
 ]
 
 [tool.uv]
