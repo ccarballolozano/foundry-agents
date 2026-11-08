@@ -4,6 +4,8 @@ A demonstration of the end-to-end lifecycle of an AI agent built with the [Micro
 
 The agents bundled here answer HR questions for the fictional company MyConcepts. They serve as a concrete surface for showcasing every capability of the platform: local development, deployment, observability, evaluation, knowledge grounding, red teaming, and guardrails.
 
+> **Saw the talk, or want to run the whole demo?** Start with the [demo guide](docs/demo-guide.md): setup in order, every demo with its commands and expected results, and what each one shows.
+
 **Which agent is which**
 
 | Agent | Folder | Role in the demo | What it shows |
@@ -122,12 +124,15 @@ foundry-hosted-agent-demo/
 ├── uv.lock                          # Pinned dependency versions (used by uv sync)
 ├── test_multiturn.py                # Two-turn conversation via Azure AI Projects SDK
 ├── docs/
-│   └── azure-search-in-foundry.md   # Cited terms, options and a tested step-by-step guide for Azure AI Search in Foundry
+│   ├── demo-guide.md                # The talk's demo end to end: setup, each demo, expected results
+│   ├── azure-search-in-foundry.md   # Cited terms, options and a tested step-by-step guide for Azure AI Search in Foundry
+│   └── talk/presentation.html       # The talk's slides: one self-contained HTML file
 ├── scripts/
 │   ├── generate_trace_traffic.sh    # Generates varied traffic for observability
 │   ├── use-guardrail-manifest.sh    # Renders azure-with-guardrail.yaml with policy IDs from the azd env
 │   ├── probe-guardrail.sh           # Sends probe prompts and reports what the guardrail blocked
 │   ├── demo-agent-identity.sh       # Revokes and restores the agent's role to show per-agent identity
+│   ├── preflight.sh                 # Checks sign-in and demo state, warms every agent before presenting
 │   └── a2a_call.py                  # Calls a hosted agent directly over A2A v1.0 (a2a-sdk)
 └── agents/
     ├── it-agent/                    # IT onboarding agent built with LangGraph (no evals/ on purpose)
@@ -318,12 +323,18 @@ Without `--local`, the request goes to the hosted agent in Foundry.
 
 ### Manage Sessions and Conversations
 
-Foundry distinguishes two concepts that are easy to conflate:
+Foundry distinguishes two concepts that are easy to conflate ([Manage hosted agent sessions](https://learn.microsoft.com/azure/foundry/agents/how-to/manage-hosted-sessions#sessions-versus-conversations)):
 
-> **Session** — the execution environment for the agent (resources, configuration, state context).
-> **Conversation** — the message history within a session.
+| | Conversation | Session |
+|---|---|---|
+| What it is | The history of messages, tool calls and responses | An isolated sandbox: compute plus a persisted `$HOME` and `/files` |
+| Identified by | A conversation ID or `previous_response_id` (Responses protocol) | `agent_session_id` |
+| Used for | Threading the turns of a chat, so the agent remembers | Files and working state that must survive across turns |
+| Lifetime | Stored by the platform | Compute is released after the idle timeout (15 min by default, 2 min to 4 h) and restored on the next call; the session is deleted after 30 days without use |
 
-By default, `azd ai agent invoke` reuses the last session. This means subsequent invocations share context, allowing the agent to reference prior messages:
+**Memory comes from the conversation, not the session.** Reusing a session ID on its own doesn't replay earlier messages to the model. A conversation carries its own session, so calls in the same conversation also land in the same sandbox.
+
+By default, `azd ai agent invoke` reuses the last conversation (and the session that goes with it). Subsequent invocations therefore share context, and the agent can refer to earlier messages:
 
 ```bash
 azd ai agent invoke "Tell me about the Remote Work benefit."
@@ -331,7 +342,7 @@ azd ai agent invoke "What benefit did I just ask about?"
 # ↑ The agent knows you asked about Remote Work in the previous turn
 ```
 
-To start a **new session** — breaking the conversation continuity:
+`--new-session` starts a new conversation and a new session, so the continuity is broken:
 
 ```bash
 azd ai agent invoke --new-session "What benefit did I just ask about?"
@@ -622,9 +633,10 @@ curl -s -X POST \
 The response body is Responses-API shaped. Two fields are especially useful:
 
 - `output_text` — the agent's final text answer.
-- `agent_session_id` (returned by the API) — the session the invocation ran in; reuse it to continue the conversation (this is exactly what `test_multiturn.py` does via the SDK).
+- `id` — the response ID. Pass it as `previous_response_id` in the next request to continue the conversation.
+- `agent_session_id` (returned by the API) — the session (sandbox) the invocation ran in. Send it back on the next call to land in the same sandbox, for example to reuse uploaded files. On its own it does not continue the conversation.
 
-**Multi-turn over REST:** pass `previous_response_id: "<response id>"` from turn 1 in the next request's body to chain turns, mirroring the SDK example in [Explore Multiturn Conversations](#explore-multiturn-conversations).
+**Multi-turn over REST:** pass `previous_response_id: "<response id>"` from turn 1 in the next request's body to chain turns (add `agent_session_id` too if the turns must share the same sandbox), mirroring the SDK example in [Explore Multiturn Conversations](#explore-multiturn-conversations).
 
 > If you get a `401`, your token expired — re-run step 2. If you get the `content_filter` error from the [guardrails section](#apply-guardrails), your attached policy is rejecting the input.
 
@@ -641,7 +653,7 @@ python test_multiturn.py
 This script (uses the root `.env`):
 1. Sends a message stating a name (`"Mi nombre es Christian."`)
 2. Captures the `agent_session_id` from the response
-3. Sends a follow-up question (`"¿Cómo me llamo?"`) with `previous_response_id` and `extra_body={"agent_session_id": session_id}` to chain the turns
+3. Sends a follow-up question (`"¿Cómo me llamo?"`) with `previous_response_id`, which chains the turns (the agent remembers the name), and `extra_body={"agent_session_id": session_id}`, which keeps the second turn in the same sandbox
 
 This provides full control over session and conversation management from code — useful when building chat applications or running integration tests.
 
@@ -778,7 +790,7 @@ On the first run, before `hr-agent` has ever been deployed, step 6 reports **"hr
 | Agent guardrails (`raiPolicies` ARM API) | `2025-06-01` |
 | Red teaming (`azure-ai-evaluation[redteam]`, cloud red teaming via `azure-ai-projects`) | `1.18.11`, `2.7.0` |
 
-**Cost notes:** the search service is the main cost (Basic tier, billed per hour while it exists). Storage and embeddings for eight short files are negligible. Query planning, evaluation and red teaming call `gpt-5.4-mini` and are billed per token: a targeted scan is 50 agent calls, and an evaluation run is 20 agent calls plus 20 judge calls. Reuse an existing Basic search service where you can, and use [Tear down](#tear-down) when you're done.
+**Cost notes:** the search service is the main cost (Basic tier, billed per hour while it exists). Storage and embeddings for eight short files are negligible. Query planning, evaluation and red teaming call `gpt-5.4-mini` and are billed per token: a targeted scan is 50 agent calls, and an evaluation run is 20 agent calls plus 20 judge calls. Reuse an existing Basic search service where you can, use [Pause between demos](#pause-between-demos) to stop the search cost while keeping the rest deployed, and [Tear down](#tear-down) when you're done.
 
 > **Production path:** this script is deliberately readable and safe to repeat, but it is not infrastructure as code. For production, express the same resources and role assignments in Bicep or Terraform. The repo has no `infra/` because the azd agent extension manages the project infrastructure.
 
@@ -996,6 +1008,18 @@ python agents/hr-agent/provision/provision.py --teardown
 ```
 
 This removes the toolboxes, the connections (including the two A2A connections to `it-agent`), the knowledge base and the knowledge source (with the index it created). `it-agent` stays deployed. It keeps the search service, storage account and embedding deployment, because they may be shared, and prints the commands to delete them. Run `provision.py` again to restore everything. The agent works again once ingestion finishes.
+
+### Pause between demos
+
+The search service is the only resource here with a fixed cost while idle (Basic is billed per hour, about $70–75 a month). It cannot be stopped, and it cannot be moved to the Free tier: Free has no managed identity, which the knowledge source needs to read the handbook and call the models keyless. To stop the cost without losing the rest of the setup:
+
+```bash
+python agents/hr-agent/provision/provision.py --pause    # asks you to type the service name; --yes skips that
+```
+
+This deletes only the search service (with its index, knowledge source and knowledge base) and its identity's roles on the storage account and the Foundry account. Toolboxes, connections, storage, the embedding deployment and both agents stay. Until you resume, `hr-agent` answers benefit questions but its handbook tool fails.
+
+To resume, run `provision.py` without flags, ideally the day before a demo. It takes about 20 minutes (measured once), mostly creating the service and assigning roles. It recreates the service under the same name and endpoint, so nothing that points at it changes, then grants the roles again and re-ingests the handbook. If Azure reports the name as taken, or ingestion fails right after the roles are granted (they take a few minutes to apply), wait and run it again. Then run `scripts/preflight.sh`.
 
 ---
 

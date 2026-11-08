@@ -1,0 +1,1173 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>De un agente que funciona a un agente operable</title>
+<meta name="description" content="Presentación: qué necesita un agente de IA alrededor para estar en producción y ser operable con Microsoft Foundry. Desplegarlo, evolucionarlo, integrarlo, entenderlo y protegerlo, con demos reales.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<!--
+  Presentación: «De un agente que funciona a un agente en producción y operable».
+  Un solo fichero, sin dependencias salvo las fuentes (con alternativas si no cargan).
+
+  Navegar:  → / espacio / clic  avanzar      ← retroceder      Inicio / Fin
+            1–5  ir al inicio de un acto (0 portada, 6 cierre)
+            M  mostrar u ocultar la barra de controles (también aparece al llevar el ratón al borde inferior)
+            N  notas: explicación y fuentes de cada diapositiva
+            O  índice      Q  QR del repositorio      F  pantalla completa
+            R  repetir la animación de la diapositiva      #12 en la URL abre la 12
+
+  Reutilizarla:
+    · Textos de portada y cierre: el objeto DECK al final del fichero.
+    · Estilo: los tokens de :root (colores y fuentes).
+-->
+<style>
+:root {
+  /* Theme tokens: change these to restyle the whole deck.
+     Palette after plainconcepts.com: blacks #0D0E0F–#28292E, whites #F2F3F7–#DFE1EC,
+     blue #2F69FF (gradient to #2F8CFF), red #F33859, green #3ABAAF; typeface Outfit.
+     Text colours on light backgrounds are slightly darker shades so small text keeps 4.5:1.
+     Colour roles: blue = highlight, progress, hr-agent · yellow = the second item of a pair
+     (it-agent, session, in production) · green = passed or protected · red = only risk, failure, leak. */
+  --dark: #0d0e0f;  --dark-2: #1b1c1f;  --dark-line: #2c2e34;
+  --on-dark: #f2f3f7;  --on-dark-soft: #b9c3da;  --on-dark-mute: #8e94a6;
+  --light: #f2f3f7;  --card: #ffffff;  --light-line: #dfe1ec;
+  --on-light: #0d0e0f;  --on-light-soft: #4b4e5a;
+  --accent: #2f69ff;  --accent-text: #1f55e6;  --accent-on-dark: #4f8bff;  --accent-soft: #e4ebff;
+  --hot: #d02848;     --hot-on-dark: #f33859;  --hot-soft: #fde4e9;  --lit: #f33859;
+  --alt: #fbc740;    --alt-text: #835800;     --alt-soft: #fff3d1;
+  --ok: #3abaaf;     --ok-text: #157067;      --ok-soft: #dcf4f1;
+  --statement: linear-gradient(53deg, #2f6aff 0%, #2f8cff 100%);
+  --term: #08090a;  --term-out: #8fb2ff;  --term-dim: #858a99;  --term-add: #3abaaf;
+  --f-display: "Outfit", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Outfit", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: #050506; overflow: hidden; }
+body { font-family: var(--f-body); -webkit-font-smoothing: antialiased; }
+button { font: inherit; }
+
+/* Stage: a fixed 1920×1080 canvas scaled to fit the window. */
+#stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden; }
+.slide { position: absolute; inset: 0; padding: 120px 128px 150px; visibility: hidden; opacity: 0; transition: opacity .45s ease, visibility 0s linear .45s; display: flex; flex-direction: column; gap: 40px; }
+.slide.active { visibility: visible; opacity: 1; transition: opacity .45s ease; }
+.slide.dark { background: var(--dark); color: var(--on-dark); }
+.slide.light { background: var(--light); color: var(--on-light); }
+.slide.statement { background: var(--statement); color: #ffffff; }
+.slide > .public { display: none; }
+
+/* Type scale: 120 / 72 / 44 / 32 / 26 */
+.eyebrow { font-family: var(--f-mono); font-size: 26px; letter-spacing: .1em; text-transform: uppercase; }
+.dark .eyebrow { color: var(--accent-on-dark); }
+.light .eyebrow { color: var(--accent-text); }
+.display { font-family: var(--f-display); font-weight: 800; font-size: 120px; line-height: 1.02; letter-spacing: -.02em; }
+.title { font-family: var(--f-display); font-weight: 800; font-size: 72px; line-height: 1.05; letter-spacing: -.01em; max-width: 1664px; }
+.title.sm { font-size: 64px; }
+.lede { font-size: 36px; line-height: 1.4; max-width: 1300px; }
+.dark .lede, .dark .soft { color: var(--on-dark-soft); }
+.light .lede, .light .soft { color: var(--on-light-soft); }
+.mono { font-family: var(--f-mono); }
+.acc { color: var(--accent-text); } .dark .acc { color: var(--accent-on-dark); }
+.hot { color: var(--hot); } .dark .hot { color: var(--hot-on-dark); }
+.alt { color: var(--alt-text); } .dark .alt { color: var(--alt); }
+.ok { color: var(--ok-text); } .dark .ok { color: var(--ok); }
+.slide h3 { font-size: 40px; font-weight: 600; line-height: 1.2; }
+.slide p, .slide li { font-size: 30px; line-height: 1.45; }
+ul.list { padding-left: 1.1em; display: flex; flex-direction: column; gap: 10px; }
+.light ul.list { color: var(--on-light-soft); }
+.dark ul.list { color: var(--on-dark-soft); }
+.spacer { flex: 1; }
+
+/* Cards */
+.row { display: flex; gap: 32px; align-items: stretch; }
+.row > * { flex: 1; min-width: 0; }
+.card { border-radius: 22px; padding: 40px 44px; display: flex; flex-direction: column; gap: 18px; }
+.light .card { background: var(--card); border: 1px solid var(--light-line); }
+.dark .card { background: var(--dark-2); border: 1px solid var(--dark-line); }
+.light .card.pick { background: var(--accent-soft); border: 3px solid var(--accent); }
+.light .card.warn { background: var(--hot-soft); border: 3px solid var(--hot); }
+.card .head { display: flex; align-items: center; gap: 18px; }
+.card .sub { font-size: 26px; font-weight: 600; }
+.ico { width: 52px; height: 52px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.light .ico { color: var(--accent); } .dark .ico { color: var(--accent-on-dark); }
+.ico.hot { color: var(--hot); } .dark .ico.hot { color: var(--hot-on-dark); }
+.ico.alt { color: var(--alt-text); } .dark .ico.alt { color: var(--alt); }
+.ico.ok { color: var(--ok-text); } .dark .ico.ok { color: var(--ok); }
+.tag { display: inline-block; font-size: 22px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 6px 16px; border-radius: 999px; background: var(--accent); color: #ffffff; align-self: flex-start; }
+.tag.ghost { background: transparent; border: 1.5px solid currentColor; color: inherit; }
+.callout { border-radius: 18px; padding: 28px 36px; font-size: 32px; line-height: 1.4; }
+.light .callout { background: var(--hot-soft); }
+.light .callout.soft-acc { background: var(--accent-soft); }
+.dark .callout { background: var(--dark-2); border: 1px solid var(--dark-line); }
+
+/* Reveal: [data-step] appears on that advance; .stagger reveals its children one after another in the same advance. */
+[data-step] { opacity: 0; transform: translateY(26px); transition: opacity .55s ease, transform .55s cubic-bezier(.2,.7,.2,1); transition-delay: calc(var(--d, 0) * 1ms); }
+[data-step].shown { opacity: 1; transform: none; }
+.stagger[data-step] { opacity: 1; transform: none; }
+.stagger[data-step] > * { opacity: 0; transform: translateY(26px) scale(.98); transition: opacity .5s ease, transform .5s cubic-bezier(.2,.7,.2,1); transition-delay: calc(var(--i, 0) * 110ms); }
+.stagger[data-step].shown > * { opacity: 1; transform: none; }
+.enter { animation: enter .7s cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(var(--i, 0) * 110ms); }
+.slide:not(.active) .enter { animation: none; }
+@keyframes enter { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+
+/* Checklist board */
+.board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; }
+.piece { border-radius: 20px; padding: 30px 32px; background: var(--dark-2); border: 1px solid var(--dark-line); display: flex; flex-direction: column; gap: 6px; }
+.piece b { font-size: 36px; font-weight: 600; }
+.piece span { font-size: 26px; color: var(--on-dark-mute); }
+.mini { display: grid; grid-template-columns: repeat(2, 300px); gap: 18px; align-content: center; }
+.mini .t { height: 96px; border-radius: 16px; padding: 0 26px; display: flex; align-items: center; font-size: 28px; font-weight: 600; background: var(--dark-2); border: 1px solid var(--dark-line); color: var(--on-dark-mute); transition: background .5s, border-color .5s, color .5s, transform .5s; }
+.mini .t.lit { background: var(--accent); border-color: var(--accent); color: #ffffff; }
+.mini .t.pulse { transform: scale(1.06); }
+.divider { flex-direction: row; align-items: center; gap: 96px; }
+.divider .txt { flex: 1; display: flex; flex-direction: column; gap: 30px; }
+.divider .count { font-family: var(--f-mono); font-size: 28px; color: var(--accent-on-dark); margin-bottom: 6px; }
+
+/* Terminal */
+.term { background: var(--term); border: 2px solid var(--dark-line); border-radius: 22px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.term .bar { display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; border-bottom: 1px solid #1f2024; font-family: var(--f-mono); font-size: 22px; color: var(--term-dim); }
+.term .bar button { background: #ffffff12; border: 1px solid #ffffff2a; color: var(--on-dark); border-radius: 10px; padding: 6px 14px; font-size: 20px; cursor: pointer; }
+.term .bar button:hover { background: #ffffff22; }
+.term pre { padding: 28px 36px; font-family: var(--f-mono); font-size: 27px; line-height: 1.6; color: var(--on-dark); white-space: pre-wrap; word-break: break-word; flex: 1; }
+.term.dense pre { font-size: 25px; line-height: 1.55; }
+.term .p, .term .c { color: var(--term-dim); }
+.term .o { color: var(--term-out); }
+.term .a { color: var(--term-add); }
+.term .x { color: var(--dark); background: var(--alt); font-weight: 600; padding: 0 10px; border-radius: 6px; }
+.term .g { color: var(--dark); background: var(--ok); font-weight: 600; padding: 0 10px; border-radius: 6px; }
+.term .k { display: inline-block; width: 15px; height: 32px; background: var(--term-out); vertical-align: -6px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* Foundry responsibilities */
+.resp { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+.resp > div { border-radius: 18px; padding: 24px 26px; background: var(--card); border: 1px solid var(--light-line); }
+.resp b { display: block; font-size: 30px; }
+.resp span { font-size: 25px; color: var(--on-light-soft); }
+.deploy { display: flex; align-items: center; gap: 22px; font-family: var(--f-mono); font-size: 30px; font-weight: 600; color: var(--accent); }
+.deploy svg { width: 120px; height: 40px; }
+
+/* Versions */
+.vers { display: flex; gap: 20px; align-items: center; }
+.ver { border-radius: 18px; padding: 24px 30px; background: var(--card); border: 1px solid var(--light-line); }
+.ver b { font-family: var(--f-display); font-size: 48px; display: block; line-height: 1; }
+.ver span { font-size: 24px; color: var(--on-light-soft); }
+.ver.on { background: var(--accent); border-color: var(--accent); color: #ffffff; }
+.ver.on span { color: #ffffff; }
+.feat { display: flex; align-items: center; gap: 24px; }
+.feat b { font-size: 32px; display: block; }
+.feat span { font-size: 26px; color: var(--on-light-soft); }
+
+/* Eval meters */
+.meters { display: flex; flex-direction: column; gap: 40px; }
+.meter .top { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 14px; }
+.meter .name { font-size: 32px; font-weight: 600; }
+.meter .note { font-size: 25px; color: var(--on-dark-mute); }
+.meter .pct { font-family: var(--f-display); font-size: 64px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cells { display: grid; grid-template-columns: repeat(15, 1fr); gap: 8px; }
+.cells i { height: 48px; border-radius: 8px; background: var(--dark-line); transition: background .25s, transform .25s; }
+.cells i.ok { background: var(--ok); }
+.cells i.ko { background: var(--hot-on-dark); }
+.judge { font-family: var(--f-mono); font-size: 25px; line-height: 1.5; color: var(--term-out); transition: opacity .6s; }
+.judge span { color: var(--on-dark-mute); }
+
+/* Architecture */
+.arch { position: relative; height: 560px; }
+.arch .box { position: absolute; border-radius: 22px; padding: 30px 34px; display: flex; flex-direction: column; gap: 8px; }
+.arch .box b { font-family: var(--f-display); font-size: 42px; font-weight: 800; }
+.arch .box span { font-size: 25px; color: var(--on-light-soft); }
+.arch svg.links { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.arch .lbl { position: absolute; font-family: var(--f-mono); font-size: 26px; font-weight: 600; }
+
+/* Trace */
+.trace { background: var(--dark-2); border: 1px solid var(--dark-line); border-radius: 22px; padding: 30px 40px; display: flex; flex-direction: column; gap: 10px; }
+.trace .hd { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 25px; color: var(--on-dark-soft); }
+.trace .hd i { display: inline-block; width: 20px; height: 20px; border-radius: 5px; margin: 0 10px 0 28px; vertical-align: -3px; }
+.trace .clock { font-family: var(--f-mono); font-size: 36px; font-weight: 600; color: var(--term-out); font-variant-numeric: tabular-nums; }
+.trace .r { display: grid; grid-template-columns: 470px 1fr 120px; gap: 20px; align-items: center; height: 38px; }
+.trace .n { font-family: var(--f-mono); font-size: 25px; white-space: nowrap; }
+.trace .tr { position: relative; height: 28px; background: #111215; border-radius: 6px; }
+.trace .b { position: absolute; top: 0; bottom: 0; border-radius: 5px; width: 0; }
+.trace .d { font-family: var(--f-mono); font-size: 24px; color: var(--on-dark-mute); text-align: right; opacity: 0; transition: opacity .3s; }
+.trace .cold { position: absolute; top: -7px; bottom: -7px; border: 3px dashed var(--hot-on-dark); border-radius: 8px; opacity: 0; transition: opacity .6s; }
+.trace .axis { display: grid; grid-template-columns: 470px 1fr 120px; gap: 20px; font-family: var(--f-mono); font-size: 20px; color: var(--on-dark-mute); }
+.trace .axis div { display: flex; justify-content: space-between; }
+.takeaways { display: flex; gap: 32px; transition: opacity .8s; }
+.takeaways > div { flex: 1; font-size: 27px; line-height: 1.35; color: var(--on-dark-soft); }
+.takeaways b { display: block; font-family: var(--f-display); font-size: 44px; color: var(--hot-on-dark); line-height: 1.1; }
+
+/* Guardrail flow */
+.flow { display: flex; align-items: center; gap: 14px; }
+.flow > div { flex: 1; border-radius: 18px; padding: 24px 26px; background: var(--card); border: 1px solid var(--light-line); }
+.flow > div.g { background: var(--accent-soft); border: 3px solid var(--accent); }
+.flow > div.g b { color: var(--accent); }
+.flow b { display: block; font-size: 32px; }
+.flow span { font-size: 24px; color: var(--on-light-soft); }
+.flow > svg { flex: none; width: 40px; height: 24px; color: #9aa0b2; }
+
+/* Red-team bars */
+.bars { display: flex; flex-direction: column; gap: 34px; }
+.bar-row .top { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 30px; font-weight: 600; }
+.bar-row .track { display: flex; height: 50px; border-radius: 10px; overflow: hidden; background: #dfe1ec; }
+.bar-row .track i { display: block; height: 100%; width: 0; transition: width 1s cubic-bezier(.2,.7,.2,1); }
+.legend { display: flex; gap: 32px; font-size: 24px; color: var(--on-light-soft); }
+.legend i { display: inline-block; width: 22px; height: 22px; border-radius: 5px; margin-right: 10px; vertical-align: -3px; }
+
+/* Cycle */
+.cycle { position: relative; height: 720px; }
+.cycle .core { position: absolute; left: 652px; top: 186px; width: 360px; height: 360px; border-radius: 50%; border: 3px solid var(--accent-on-dark); background: #14213f; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; padding: 40px; }
+.cycle .core b { font-family: var(--f-display); font-size: 44px; line-height: 1.05; color: var(--accent-on-dark); }
+.cycle .core span { font-size: 25px; color: var(--on-dark-soft); }
+.cycle svg.ring { position: absolute; left: 532px; top: 66px; width: 600px; height: 600px; }
+.cycle .st { position: absolute; width: 460px; border-radius: 18px; padding: 22px 28px; background: var(--dark-2); border: 1px solid var(--dark-line); }
+.cycle .st b { font-size: 31px; display: block; }
+.cycle .st b em { font-style: normal; color: var(--accent-on-dark); margin-right: 10px; }
+.cycle .st span { font-size: 24px; line-height: 1.35; color: var(--on-dark-mute); }
+
+/* Agenda (hook slide): the five acts */
+.agenda { display: grid; grid-template-columns: repeat(5, 1fr); gap: 24px; }
+.agenda > div { background: var(--dark-2); border: 1px solid var(--dark-line); border-top: 6px solid var(--accent); border-radius: 18px; padding: 24px 26px 26px; display: flex; flex-direction: column; gap: 6px; }
+.agenda em { font-style: normal; font-family: var(--f-mono); font-size: 24px; color: var(--accent-on-dark); }
+.agenda b { font-family: var(--f-display); font-size: 40px; font-weight: 700; line-height: 1.1; }
+.agenda span { font-size: 25px; line-height: 1.35; color: var(--on-dark-mute); }
+.answers em { font-style: normal; font-family: var(--f-mono); font-size: 24px; color: var(--accent-text); }
+
+/* Answer columns */
+.answers { display: grid; grid-template-columns: repeat(5, 1fr); gap: 32px; }
+.answers > div { border-top: 6px solid var(--accent); padding-top: 24px; display: flex; flex-direction: column; gap: 14px; }
+.answers b { font-family: var(--f-display); font-size: 34px; }
+.answers p { font-size: 27px; line-height: 1.5; color: var(--on-light-soft); }
+
+table.roles { border-collapse: collapse; width: 100%; font-size: 27px; }
+table.roles th { text-align: left; font-size: 22px; letter-spacing: .06em; text-transform: uppercase; color: var(--on-light-soft); padding: 0 16px 14px; }
+table.roles td { padding: 18px 16px; border-top: 1px solid var(--light-line); vertical-align: top; }
+table.roles td:first-child { font-family: var(--f-mono); font-size: 25px; }
+
+/* HUD (inside the stage): act tracker and slide counter */
+#hud { position: absolute; left: 128px; right: 128px; bottom: 50px; display: flex; justify-content: space-between; align-items: center; font-family: var(--f-mono); font-size: 22px; pointer-events: none; transition: opacity .3s; }
+#hud .track { display: flex; align-items: center; gap: 8px; }
+#hud .track i { width: 40px; height: 8px; border-radius: 4px; transition: background .4s; }
+#hud .lbl { margin-left: 18px; }
+#hud.on-dark { color: var(--on-dark-mute); } #hud.on-dark .track i { background: var(--dark-line); } #hud.on-dark .track i.on { background: var(--accent); }
+#hud.on-light { color: var(--on-light-soft); } #hud.on-light .track i { background: #dfe1ec; } #hud.on-light .track i.on { background: var(--accent); }
+#hud.no-track .track { visibility: hidden; }
+#hud.hidden { opacity: 0; }
+#progress { position: absolute; left: 0; top: 0; height: 6px; background: var(--accent); transition: width .4s ease; }
+
+/* Overlays (outside the stage, not scaled) */
+#notes { position: fixed; left: 0; right: 0; bottom: 0; max-height: 40vh; overflow: auto; background: #151618f2; color: #f2f3f7; font: 18px/1.6 var(--f-body); padding: 20px max(28px, calc((100vw - 980px) / 2)) 84px; border-top: 1px solid #2c2e34; transform: translateY(100%); transition: transform .3s; z-index: 20; }
+#notes.open { transform: none; }
+#notes .close, #toc .close { float: right; background: #ffffff14; border: 1px solid #2c2e34; color: #f2f3f7; border-radius: 9px; padding: 6px 14px; cursor: pointer; font: 500 14px var(--f-body); width: auto; display: inline-block; }
+#toc .close { margin-bottom: 4px; }
+#notes .body p { max-width: 75ch; }
+#notes ul { list-style: none; display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 12px; }
+#notes a { display: inline-block; color: #8fb2ff; text-decoration: none; border: 1px solid #2c2e34; border-radius: 999px; padding: 4px 12px; font-size: 15px; }
+#notes a:hover { background: #ffffff12; color: #fff; }
+
+/* Control bar: appears when the pointer moves, hides when idle */
+#controls { position: fixed; left: 50%; bottom: 14px; transform: translate(-50%, 8px); z-index: 25; display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 24px); overflow-x: auto; padding: 6px; border-radius: 14px; background: #151618f0; border: 1px solid #2c2e34; font: 500 14px var(--f-body); color: #b9c3da; opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; }
+body.ui #controls, #controls:focus-within { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+#controls button { flex: none; background: none; border: 0; color: inherit; padding: 8px 12px; border-radius: 9px; cursor: pointer; white-space: nowrap; }
+#controls button:hover { background: #ffffff14; color: #fff; }
+#controls button.cur { background: #2f69ff; color: #fff; }
+#controls button.on { color: #8fb2ff; }
+#controls .acts { display: flex; gap: 2px; }
+body.idle, body.idle #stage { cursor: none; }
+#controls .sep { width: 1px; align-self: stretch; background: #2c2e34; margin: 4px 4px; flex: none; }
+#controls .nav { font-size: 18px; padding: 6px 12px; }
+
+#notes h4 { font: 600 13px var(--f-mono); letter-spacing: .1em; text-transform: uppercase; color: #4f8bff; margin-bottom: 6px; }
+#toc { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 92vw); background: #151618f5; color: #f2f3f7; padding: 24px 22px; overflow: auto; transform: translateX(100%); transition: transform .3s; z-index: 30; font: 16px/1.4 var(--f-body); }
+#toc.open { transform: none; }
+#toc h4 { font: 600 12px var(--f-mono); letter-spacing: .1em; text-transform: uppercase; color: #4f8bff; margin: 18px 0 6px; }
+#toc button { display: flex; gap: 12px; width: 100%; text-align: left; background: none; border: 0; color: #b9c3da; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+#toc button span { font-family: var(--f-mono); color: #8e94a6; min-width: 26px; }
+#toc button:hover, #toc button.cur { background: #ffffff14; color: #fff; }
+#hint { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); background: #151618e6; color: #b9c3da; font: 14px var(--f-body); padding: 9px 16px; border-radius: 999px; z-index: 10; transition: opacity .6s; max-width: calc(100vw - 24px); text-align: center; pointer-events: none; }
+#hint .touch { display: none; }
+@media (pointer: coarse) { #hint .keys { display: none; } #hint .touch { display: inline; } }
+#hint kbd { font-family: var(--f-mono); color: #fff; }
+:focus-visible { outline: 3px solid #4f8bff; outline-offset: 2px; }
+
+/* QR of the repository */
+svg.qr { display: block; border-radius: 16px; }
+.qr-badge { display: flex; align-items: center; gap: 28px; font-size: 26px; line-height: 1.4; color: var(--on-dark-soft); }
+.qr-badge b { font-family: var(--f-mono); font-weight: 600; color: var(--on-dark); }
+.qr-badge.light { color: var(--on-light-soft); }
+.qr-badge.light b { color: var(--on-light); }
+.qr-badge.light svg.qr { box-shadow: 0 0 0 1px var(--light-line); }
+#qr-overlay { position: fixed; inset: 0; z-index: 40; background: #0d0e0ff2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3vh; color: #f2f3f7; font: 600 clamp(16px, 2.4vh, 28px) var(--f-mono); opacity: 0; visibility: hidden; transition: opacity .3s, visibility 0s linear .3s; cursor: pointer; }
+#qr-overlay.open { opacity: 1; visibility: visible; transition: opacity .3s; }
+#qr-overlay svg { width: min(70vh, 80vw); height: min(70vh, 80vw); border-radius: 3vh; }
+#qr-overlay span { max-width: 90vw; padding: 0 16px; text-align: center; overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; animation-delay: 0s !important; transition-delay: 0s !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- Inline icon set (stroke icons) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.8.8 1.3 1.6 1.5 2.5h5c.2-.9.7-1.7 1.5-2.5A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zM4 21V5M8 7h7"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h8a3 3 0 0 0 0-6H8a3 3 0 0 1 0-6h8"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0M12 18l4-6"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-scale" viewBox="0 0 24 24"><path d="M12 3v18M7 21h10M5 7h14M5 7l-3 7a3 3 0 0 0 6 0zM19 7l-3 7a3 3 0 0 0 6 0z"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01"/></symbol>
+  <symbol id="i-user-x" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M17 8l4 4M21 8l-4 4"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c6 0 9.5 6 9.5 6a17 17 0 0 1-2.7 3.4M6.5 7.6A17 17 0 0 0 2.5 12S6 18 12 18a9.4 9.4 0 0 0 4.4-1.1M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3l10 18H2zM12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-file-lock" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M14 3l6 6h-6zM20 13v-4"/><rect x="13" y="16" width="8" height="5" rx="1"/><path d="M15 16v-1.5a2 2 0 0 1 4 0V16"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-cross" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/></symbol>
+  <!-- QR of the repository URL (error correction M). Regenerate after changing DECK.repo, see docs/demo-guide.md. -->
+  <symbol id="qr" viewBox="-4 -4 41 41"><rect x="-4" y="-4" width="41" height="41" fill="#ffffff"/><path fill="#0d0e0f" d="M0 0h7v1h-7zM9 0h1v1h-1zM11 0h2v1h-2zM16 0h1v1h-1zM18 0h4v1h-4zM23 0h1v1h-1zM26 0h7v1h-7zM0 1h1v1h-1zM6 1h1v1h-1zM9 1h1v1h-1zM11 1h2v1h-2zM15 1h1v1h-1zM18 1h1v1h-1zM20 1h1v1h-1zM22 1h1v1h-1zM26 1h1v1h-1zM32 1h1v1h-1zM0 2h1v1h-1zM2 2h3v1h-3zM6 2h1v1h-1zM8 2h1v1h-1zM10 2h1v1h-1zM14 2h3v1h-3zM19 2h1v1h-1zM21 2h2v1h-2zM26 2h1v1h-1zM28 2h3v1h-3zM32 2h1v1h-1zM0 3h1v1h-1zM2 3h3v1h-3zM6 3h1v1h-1zM8 3h1v1h-1zM10 3h2v1h-2zM18 3h1v1h-1zM22 3h1v1h-1zM24 3h1v1h-1zM26 3h1v1h-1zM28 3h3v1h-3zM32 3h1v1h-1zM0 4h1v1h-1zM2 4h3v1h-3zM6 4h1v1h-1zM8 4h2v1h-2zM13 4h4v1h-4zM20 4h2v1h-2zM23 4h1v1h-1zM26 4h1v1h-1zM28 4h3v1h-3zM32 4h1v1h-1zM0 5h1v1h-1zM6 5h1v1h-1zM8 5h1v1h-1zM13 5h2v1h-2zM18 5h2v1h-2zM26 5h1v1h-1zM32 5h1v1h-1zM0 6h7v1h-7zM8 6h1v1h-1zM10 6h1v1h-1zM12 6h1v1h-1zM14 6h1v1h-1zM16 6h1v1h-1zM18 6h1v1h-1zM20 6h1v1h-1zM22 6h1v1h-1zM24 6h1v1h-1zM26 6h7v1h-7zM8 7h1v1h-1zM14 7h1v1h-1zM16 7h1v1h-1zM19 7h3v1h-3zM24 7h1v1h-1zM0 8h1v1h-1zM2 8h5v1h-5zM10 8h1v1h-1zM12 8h3v1h-3zM17 8h1v1h-1zM19 8h1v1h-1zM26 8h5v1h-5zM1 9h4v1h-4zM7 9h2v1h-2zM11 9h1v1h-1zM13 9h2v1h-2zM16 9h2v1h-2zM19 9h3v1h-3zM23 9h1v1h-1zM26 9h2v1h-2zM29 9h2v1h-2zM32 9h1v1h-1zM1 10h2v1h-2zM6 10h1v1h-1zM12 10h6v1h-6zM20 10h3v1h-3zM24 10h3v1h-3zM28 10h1v1h-1zM30 10h2v1h-2zM0 11h1v1h-1zM5 11h1v1h-1zM10 11h2v1h-2zM13 11h1v1h-1zM16 11h4v1h-4zM21 11h2v1h-2zM24 11h1v1h-1zM26 11h1v1h-1zM28 11h3v1h-3zM32 11h1v1h-1zM0 12h3v1h-3zM6 12h2v1h-2zM9 12h1v1h-1zM12 12h1v1h-1zM14 12h1v1h-1zM16 12h1v1h-1zM20 12h1v1h-1zM22 12h4v1h-4zM27 12h3v1h-3zM31 12h2v1h-2zM1 13h1v1h-1zM3 13h2v1h-2zM8 13h1v1h-1zM10 13h3v1h-3zM15 13h1v1h-1zM18 13h1v1h-1zM23 13h1v1h-1zM26 13h1v1h-1zM29 13h1v1h-1zM31 13h2v1h-2zM1 14h1v1h-1zM3 14h2v1h-2zM6 14h1v1h-1zM8 14h4v1h-4zM14 14h5v1h-5zM20 14h1v1h-1zM22 14h1v1h-1zM25 14h2v1h-2zM29 14h1v1h-1zM31 14h1v1h-1zM2 15h4v1h-4zM8 15h1v1h-1zM10 15h1v1h-1zM13 15h1v1h-1zM15 15h1v1h-1zM18 15h1v1h-1zM21 15h1v1h-1zM25 15h2v1h-2zM30 15h1v1h-1zM3 16h6v1h-6zM10 16h1v1h-1zM14 16h2v1h-2zM17 16h1v1h-1zM22 16h4v1h-4zM27 16h2v1h-2zM32 16h1v1h-1zM3 17h2v1h-2zM8 17h2v1h-2zM11 17h2v1h-2zM16 17h1v1h-1zM18 17h3v1h-3zM23 17h1v1h-1zM26 17h2v1h-2zM29 17h2v1h-2zM32 17h1v1h-1zM3 18h8v1h-8zM12 18h1v1h-1zM15 18h1v1h-1zM18 18h1v1h-1zM20 18h1v1h-1zM22 18h1v1h-1zM24 18h2v1h-2zM27 18h2v1h-2zM30 18h2v1h-2zM0 19h1v1h-1zM5 19h1v1h-1zM8 19h1v1h-1zM10 19h1v1h-1zM13 19h4v1h-4zM19 19h3v1h-3zM27 19h5v1h-5zM2 20h1v1h-1zM5 20h2v1h-2zM8 20h2v1h-2zM12 20h1v1h-1zM18 20h2v1h-2zM22 20h1v1h-1zM24 20h2v1h-2zM28 20h2v1h-2zM0 21h3v1h-3zM5 21h1v1h-1zM8 21h1v1h-1zM13 21h1v1h-1zM15 21h2v1h-2zM20 21h7v1h-7zM29 21h1v1h-1zM32 21h1v1h-1zM0 22h1v1h-1zM2 22h1v1h-1zM5 22h2v1h-2zM9 22h5v1h-5zM17 22h3v1h-3zM25 22h1v1h-1zM28 22h2v1h-2zM31 22h1v1h-1zM0 23h1v1h-1zM2 23h1v1h-1zM5 23h1v1h-1zM9 23h2v1h-2zM12 23h3v1h-3zM16 23h1v1h-1zM18 23h5v1h-5zM24 23h3v1h-3zM28 23h4v1h-4zM0 24h1v1h-1zM3 24h8v1h-8zM12 24h3v1h-3zM17 24h1v1h-1zM19 24h1v1h-1zM22 24h7v1h-7zM8 25h1v1h-1zM16 25h4v1h-4zM21 25h1v1h-1zM23 25h2v1h-2zM28 25h1v1h-1zM30 25h1v1h-1zM32 25h1v1h-1zM0 26h7v1h-7zM9 26h1v1h-1zM11 26h1v1h-1zM14 26h2v1h-2zM17 26h1v1h-1zM20 26h5v1h-5zM26 26h1v1h-1zM28 26h1v1h-1zM30 26h2v1h-2zM0 27h1v1h-1zM6 27h1v1h-1zM8 27h2v1h-2zM11 27h1v1h-1zM13 27h1v1h-1zM15 27h4v1h-4zM20 27h2v1h-2zM23 27h2v1h-2zM28 27h3v1h-3zM32 27h1v1h-1zM0 28h1v1h-1zM2 28h3v1h-3zM6 28h1v1h-1zM8 28h5v1h-5zM14 28h1v1h-1zM16 28h1v1h-1zM19 28h1v1h-1zM22 28h1v1h-1zM24 28h6v1h-6zM32 28h1v1h-1zM0 29h1v1h-1zM2 29h3v1h-3zM6 29h1v1h-1zM8 29h2v1h-2zM13 29h3v1h-3zM18 29h1v1h-1zM22 29h4v1h-4zM28 29h5v1h-5zM0 30h1v1h-1zM2 30h3v1h-3zM6 30h1v1h-1zM8 30h1v1h-1zM10 30h2v1h-2zM13 30h1v1h-1zM15 30h2v1h-2zM18 30h1v1h-1zM20 30h1v1h-1zM22 30h1v1h-1zM26 30h2v1h-2zM0 31h1v1h-1zM6 31h1v1h-1zM10 31h1v1h-1zM12 31h2v1h-2zM15 31h1v1h-1zM19 31h1v1h-1zM21 31h3v1h-3zM28 31h3v1h-3zM0 32h7v1h-7zM8 32h3v1h-3zM12 32h2v1h-2zM15 32h1v1h-1zM17 32h1v1h-1zM22 32h3v1h-3zM26 32h2v1h-2zM31 32h1v1h-1z"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 40 24"><path d="M2 12h32M26 4l9 8-9 8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<div id="stage" role="region" aria-roledescription="presentación" aria-label="Presentación">
+<div id="progress"></div>
+
+<!-- 1 · Portada -->
+<section class="slide dark" data-act="0" data-hud="none" data-title="Portada">
+  <div class="spacer"></div>
+  <h1 class="display enter" style="font-size:104px;max-width:1500px">De un agente que funciona a un agente en producción <span class="acc">y operable</span></h1>
+  <p class="lede enter" style="--i:1;margin-top:-8px;font-size:44px">con Microsoft Foundry</p>
+  <div class="spacer"></div>
+  <div class="enter" style="--i:2;display:flex;justify-content:space-between;align-items:flex-end;gap:48px">
+    <p class="soft" style="font-size:32px" data-bind="byline"></p>
+    <div class="qr-badge"><svg class="qr" style="width:180px;height:180px" role="img" aria-label="Código QR del repositorio"><use href="#qr"/></svg><span>Código, demos y guía<br><b data-bind="repo"></b></span></div>
+  </div>
+  <aside class="public"><p>Partimos de un agente que funciona en local y recorremos lo que necesita alrededor para estar en producción y ser operable, antes de desplegar y también después.</p><ul><li><a data-repo="docs/demo-guide.md">Repo · guía para ejecutar toda la demo</a></li><li><a data-repo="README.md">Repo · README del repositorio</a></li></ul></aside>
+</section>
+
+<!-- 2 · La pregunta -->
+<section class="slide dark" data-act="0" data-hud="none" data-title="Tu agente funciona. ¿Y ahora qué?">
+  <div class="spacer"></div>
+  <h1 class="display">Tu agente funciona.<br><span class="acc" data-step="1">¿Y ahora qué?</span></h1>
+  <p class="lede" data-step="1" style="--d:250">¿Qué necesita a su alrededor para estar en producción y ser operable, antes de desplegar y también después?</p>
+  <div class="agenda stagger" data-step="2">
+    <div><em>1</em><b>Desplegarlo</b><span>que corra y lo puedan usar</span></div>
+    <div><em>2</em><b>Evolucionarlo</b><span>sin miedo: versiones y evaluación</span></div>
+    <div><em>3</em><b>Integrarlo</b><span>conocimiento y otros agentes</span></div>
+    <div><em>4</em><b>Entenderlo</b><span>trazas de extremo a extremo</span></div>
+    <div><em>5</em><b>Protegerlo</b><span>guardrails y red teaming</span></div>
+  </div>
+  <div class="spacer"></div>
+  <aside class="public"><p>Construir un agente que funciona es solo el principio: el reto cambia cuando tiene que formar parte de una aplicación real. Y no termina al desplegar: cada capacidad vive en dos momentos, antes de desplegar y en producción. Los cinco verbos son los cinco actos de la charla.</p></aside>
+</section>
+
+<!-- 3 · Ya tenemos un agente -->
+<section class="slide light" data-act="0" data-title="Ya tenemos un agente">
+  <p class="eyebrow">Acto 0 · Funciona</p>
+  <h2 class="title" style="margin-top:-20px">Ya tenemos un agente</h2>
+  <div class="row stagger" data-step="1">
+    <div class="card"><svg class="ico" aria-hidden="true"><use href="#i-bulb"/></svg><h3>Un modelo</h3><p class="soft">El cerebro del agente: <span class="mono">gpt-5.4-mini</span>, desplegado en Foundry.</p></div>
+    <div class="card"><svg class="ico" aria-hidden="true"><use href="#i-book"/></svg><h3>Unas instrucciones</h3><p class="soft">Le dicen cómo comportarse: usa la herramienta, no inventes.</p></div>
+    <div class="card"><svg class="ico" aria-hidden="true"><use href="#i-wrench"/></svg><h3>Una herramienta</h3><p class="soft"><span class="mono">get_benefit_details</span>: consulta los beneficios de la empresa.</p></div>
+  </div>
+  <div class="spacer"></div>
+  <div data-step="2" style="display:flex;flex-direction:column;gap:20px">
+    <p class="mono" style="font-size:30px;background:var(--dark);color:var(--on-dark);border-radius:18px;padding:26px 36px"><span style="color:var(--term-dim)">$ </span>python agents/hr-benefits-agent/local.py</p>
+    <p class="soft" style="font-size:28px">Python + Agent Framework · el agente: una función de ~15 líneas · de momento, solo en mi portátil</p>
+  </div>
+  <aside class="public"><p>Un agente es un asistente al que le das un objetivo y decide los pasos: piensa, elige una herramienta, la usa y vuelve a pensar. Este tiene tres piezas y está escrito en Python con Microsoft Agent Framework.</p><ul><li><a data-repo="agents/hr-benefits-agent/agent.py">Repo · agent.py</a></li><li><a data-repo="agents/hr-benefits-agent/tools.py">Repo · tools.py</a></li></ul></aside>
+</section>
+
+<!-- 4 · La lista -->
+<section class="slide dark" data-act="0" data-hud="count" data-title="Funciona… en mi portátil">
+  <h2 class="title">Funciona… en mi portátil</h2>
+  <p class="lede" style="margin-top:-20px">Lo que necesita alrededor para estar en producción y ser operable</p>
+  <div class="board stagger" data-step="1">
+    <div class="piece"><b>Dónde corre</b><span>runtime y endpoint</span></div>
+    <div class="piece"><b>Identidad</b><span>quién es y qué puede tocar</span></div>
+    <div class="piece"><b>Contexto</b><span>sesiones y conversación</span></div>
+    <div class="piece"><b>Versiones</b><span>cambiar sin romper</span></div>
+    <div class="piece"><b>Evaluación</b><span>medir y detectar regresiones</span></div>
+    <div class="piece"><b>Integración</b><span>herramientas y otros agentes</span></div>
+    <div class="piece"><b>Observabilidad</b><span>trazas y monitorización</span></div>
+    <div class="piece"><b>Protección</b><span>guardrails y red teaming</span></div>
+  </div>
+  <p class="lede" data-step="1" style="--d:1100;font-size:32px">Cada pieza, en dos momentos: <b style="color:var(--on-dark)">antes de desplegar</b> (una puerta) · <b style="color:var(--on-dark)">en producción</b> (continuo)</p>
+  <aside class="public"><p>Ocho cosas que un agente necesita alrededor para estar en producción y ser operable. Cada una vive en dos momentos: antes de desplegar, como una puerta que para una mala versión, y en producción, de forma continua. La barra inferior las va marcando a lo largo de la charla.</p></aside>
+</section>
+
+<!-- 5 · Acto 1 -->
+<section class="slide dark divider" data-act="1" data-hud="count" data-title="Acto 1 · Que corra y lo puedan usar">
+  <div class="txt">
+    <p class="eyebrow">Acto 1</p>
+    <h1 class="display" style="font-size:104px">Que corra y lo puedan usar</h1>
+    <p class="lede">Del portátil a un servicio gestionado en Azure</p>
+  </div>
+  <div><p class="count">3 / 8</p><div class="mini" data-anim="board" data-lit="0" data-new="3"></div></div>
+  <aside class="public"><p>Ahora mismo nadie más puede usarlo. Necesita un sitio donde correr, una dirección, una identidad y memoria de la conversación.</p></aside>
+</section>
+
+<!-- 6 · Prompt vs Hosted -->
+<section class="slide light" data-act="1" data-title="Prompt Agent o Hosted Agent">
+  <h2 class="title">Prompt Agent o Hosted Agent</h2>
+  <div class="row stagger" data-step="1">
+    <div class="card">
+      <div class="head"><svg class="ico" style="color:var(--on-light-soft)" aria-hidden="true"><use href="#i-spark"/></svg><h3>Prompt Agent</h3></div>
+      <ul class="list"><li>Modelo, instrucciones y herramientas, definidos en Foundry</li><li>Sin código ni cómputo que mantener</li><li>También en producción, si no necesitas orquestación propia</li><li>Límite: sin tu propio código ni tu framework</li></ul>
+    </div>
+    <div class="card pick">
+      <div class="head"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg><h3>Hosted Agent</h3><span class="tag" style="margin-left:auto">el nuestro</span></div>
+      <ul class="list"><li>Traes tu código y tu framework (Agent Framework, LangGraph…)</li><li>Controlas CPU, memoria y el estado de cada sesión</li><li>Identidad en Entra dedicada a cada agente</li><li>A cambio: mantienes el código y pagas el cómputo del contenedor</li></ul>
+    </div>
+  </div>
+  <p data-step="1" style="--d:500;font-family:var(--f-display);font-size:38px;font-weight:700" class="acc">Nuestro agente ya es código Python → Hosted Agent</p>
+  <aside class="public"><p>Dos formas de tener un agente en Foundry. Un Prompt Agent se define en Foundry (modelo, instrucciones y herramientas) sin código propio. Un Hosted Agent trae tu código y tu framework. Este agente ya es código Python, así que es un Hosted Agent.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/agents/overview">Learn · Compare agent types</a></li><li><a href="https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agents">Learn · What are hosted agents?</a></li></ul></aside>
+</section>
+
+<!-- 7 · Lo nuestro y lo de Foundry -->
+<section class="slide light" data-act="1" data-title="Lo nuestro y lo de Foundry">
+  <h2 class="title">Lo nuestro y lo de Foundry</h2>
+  <div style="display:flex;gap:40px;align-items:center">
+    <div class="card" style="width:420px;flex:none">
+      <p class="eyebrow" style="color:var(--on-light-soft);font-size:22px">Nuestro equipo</p>
+      <p style="font-weight:600;background:var(--accent-soft);border-radius:12px;padding:12px 20px">Código del agente</p>
+      <p style="font-weight:600;background:var(--accent-soft);border-radius:12px;padding:12px 20px">Instrucciones</p>
+      <p style="font-weight:600;background:var(--accent-soft);border-radius:12px;padding:12px 20px">Herramientas</p>
+      <p style="font-weight:600;background:var(--accent-soft);border-radius:12px;padding:12px 20px">Framework</p>
+    </div>
+    <div class="deploy" data-step="1"><div style="display:flex;flex-direction:column;align-items:center;gap:8px">azd deploy<svg viewBox="0 0 40 24" aria-hidden="true"><use href="#i-arrow"/></svg></div></div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:18px">
+      <p class="eyebrow" data-step="1" style="color:var(--accent);font-size:22px">Foundry se encarga de…</p>
+      <div class="resp stagger" data-step="1" style="grid-template-columns:repeat(2,1fr)">
+        <div><b>Runtime</b><span>contenedor gestionado</span></div>
+        <div><b>Endpoint</b><span>Responses API y A2A</span></div>
+        <div><b>Identidad</b><span>propia, en Microsoft Entra</span></div>
+        <div><b>Sesiones</b><span>estado y conversación</span></div>
+        <div><b>Escalado</b><span>incluso a cero</span></div>
+        <div><b>Versiones</b><span>ciclo de vida</span></div>
+        <div><b>Observabilidad</b><span>trazas OpenTelemetry</span></div>
+        <div><b>Guardrails</b><span>políticas de contenido</span></div>
+      </div>
+    </div>
+  </div>
+  <aside class="public"><p>A la izquierda, lo que hace único al agente. A la derecha, lo que Foundry pone alrededor y nadie quiere programar a mano. Entre medias, un comando, azd deploy, que empaqueta el agente tal cual, sin reescribirlo.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agents">Learn · What are hosted agents?</a></li><li><a href="https://learn.microsoft.com/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint">Learn · Enable A2A on a Foundry agent</a></li><li><a href="https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview">Learn · Guardrails overview</a></li></ul></aside>
+</section>
+
+<!-- 8 · Conversación y sesión -->
+<section class="slide light" data-act="1" data-title="Conversación y sesión">
+  <h2 class="title">Conversación y sesión: el estado lo lleva Foundry</h2>
+  <div class="row stagger" data-step="1">
+    <div class="card">
+      <div class="head"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg><h3>Conversación</h3></div>
+      <p class="sub acc">el hilo: lo que se ha dicho</p>
+      <ul class="list"><li>Mensajes, llamadas a herramientas y respuestas</li><li>La guarda Foundry (protocolo Responses)</li><li>Se encadena con un id de conversación</li><li><b style="color:var(--on-light)">Es lo que hace que el agente recuerde</b></li></ul>
+    </div>
+    <div class="card">
+      <div class="head"><svg class="ico alt" aria-hidden="true"><use href="#i-box"/></svg><h3>Sesión</h3></div>
+      <p class="sub alt">el entorno: dónde corre</p>
+      <ul class="list"><li>Un sandbox aislado por sesión, con su $HOME y sus ficheros</li><li>Sin peticiones, se apaga el cómputo y se guarda el estado (15 min por defecto)</li><li>Al volver, se restaura; se borra tras 30 días sin uso</li><li>Escala por sesión, no por réplicas</li></ul>
+    </div>
+  </div>
+  <p class="callout soft-acc" data-step="2">Reutilizar la sesión, por sí solo, <b>no</b> devuelve los mensajes anteriores al modelo. Una conversación lleva asociada su sesión.</p>
+  <aside class="public"><p>La conversación es el hilo: mensajes, llamadas a herramientas y respuestas. Con el protocolo Responses la guarda la plataforma y se encadena con un id de conversación o previous_response_id; es lo que hace que el agente recuerde. La sesión es el entorno donde corre: un sandbox aislado con su $HOME y sus ficheros. Sin peticiones, la plataforma apaga el cómputo (15 min por defecto, configurable de 2 min a 4 h) y lo restaura al volver; la sesión se borra tras 30 días sin uso. Reutilizar la sesión, por sí solo, no devuelve los mensajes anteriores al modelo.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/agents/how-to/manage-hosted-sessions#sessions-versus-conversations">Learn · Sessions versus conversations</a></li><li><a href="https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agents#key-concepts">Learn · Hosted agents: key concepts</a></li></ul></aside>
+</section>
+
+<!-- 9 · Demo 2 -->
+<section class="slide dark" data-act="1" data-title="Demo 2 · El mismo agente en Foundry">
+  <p class="eyebrow">Demo 2</p>
+  <h2 class="title sm" style="margin-top:-20px">El mismo agente en Foundry: conversación, sesión e identidad</h2>
+  <div class="term" style="flex:1" data-anim="term" data-lines='[["$","azd ai agent invoke hr-benefits-agent --new-session \"Tell me about the Remote Work benefit.\""],["$","azd ai agent invoke hr-benefits-agent \"What benefit did I just ask about?\""],["o","[hr-benefits-agent] You just asked about the Remote Work benefit."],["$","azd ai agent invoke hr-benefits-agent --new-session \"What benefit did I just ask about?\""],["c","# conversación y sesión nuevas: no sabe de qué hablamos"],["$","azd ai agent show hr-benefits-agent"],["c","# versión, endpoint e identidad en Entra"]]'>
+    <div class="bar"><span>hr-benefits-agent · hosted</span><button type="button" data-copy>Copiar comandos</button></div><pre></pre>
+  </div>
+  <aside class="public"><p>Las dos primeras llamadas comparten conversación, así que la segunda recuerda la primera. Con --new-session empiezan una conversación y una sesión nuevas, y el agente ya no sabe de qué hablábamos. azd ai agent show enseña la versión, el endpoint y la identidad propia del agente en Microsoft Entra.</p><ul><li><a data-repo="docs/demo-guide.md">Repo · guía: acto 1</a></li><li><a data-repo="README.md">Repo · README: Manage Sessions and Conversations</a></li></ul></aside>
+</section>
+
+<!-- 10 · Producción 1 -->
+<section class="slide light" data-act="1" data-title="¿Y en producción? · Que corra">
+  <p class="eyebrow">Que corra y lo puedan usar</p>
+  <h2 class="title" style="margin-top:-20px">¿Y en producción?</h2>
+  <div class="row stagger" data-step="1">
+    <div class="card"><div class="head"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><h3>Antes de desplegar</h3></div><p class="sub acc">una puerta que para una mala versión</p>
+      <ul class="list"><li>El mismo contrato en local: azd ai agent run e invoke --local</li><li>Comprobación rápida (smoke test) tras cada despliegue</li></ul></div>
+    <div class="card"><div class="head"><svg class="ico alt" aria-hidden="true"><use href="#i-pulse"/></svg><h3>En producción</h3></div><p class="sub alt">continuo: detecta lo que cambia</p>
+      <ul class="list"><li>Panel de monitorización del agente: latencia, errores y tokens, con alertas</li><li>Despliega un pipeline (azd pipeline config, con OIDC), no mi portátil</li><li>Escala sola, incluso a cero</li></ul></div>
+  </div>
+  <p class="soft" data-step="1" style="--d:500;font-style:italic">Hoy lo hago a mano porque es una demo.</p>
+  <aside class="public"><p>Antes de desplegar, el mismo contrato en local y una comprobación rápida tras cada despliegue. En producción despliega un pipeline con su propia identidad (azd pipeline config, con OIDC), y el panel de monitorización del agente muestra latencia, errores y tokens, con alertas.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/observability/how-to/how-to-monitor-agents-dashboard">Learn · Agent monitoring dashboard</a></li><li><a href="https://learn.microsoft.com/azure/foundry/agents/how-to/set-up-ci-cd-cli">Learn · CI/CD with azd</a></li><li><a href="https://learn.microsoft.com/azure/foundry/agents/quickstarts/set-up-cicd-hosted-agent">Learn · Quickstart: CI/CD for a hosted agent</a></li></ul></aside>
+</section>
+
+<!-- 11 · Acto 2 -->
+<section class="slide dark divider" data-act="2" data-hud="count" data-title="Acto 2 · Que evolucione sin miedo">
+  <div class="txt"><p class="eyebrow">Acto 2</p><h1 class="display" style="font-size:104px">Que evolucione sin miedo</h1><p class="lede">Versiones y evaluación</p></div>
+  <div><p class="count">5 / 8</p><div class="mini" data-anim="board" data-lit="3" data-new="2"></div></div>
+  <aside class="public"><p>Ahora tiene que cambiar sin romper lo que ya funciona.</p></aside>
+</section>
+
+<!-- 12 · Versiones -->
+<section class="slide light" data-act="2" data-title="Cada despliegue es una versión">
+  <h2 class="title">Cada despliegue es una versión</h2>
+  <div style="display:flex;gap:80px">
+    <div style="flex:1;display:flex;flex-direction:column;gap:36px">
+      <div class="vers stagger" data-step="1">
+        <div class="ver"><b>v1</b><span>se conserva</span></div>
+        <svg viewBox="0 0 40 24" style="width:40px;height:24px;color:#9aa0b2" aria-hidden="true"><use href="#i-arrow"/></svg>
+        <div class="ver"><b>v2</b><span>se conserva</span></div>
+        <svg viewBox="0 0 40 24" style="width:40px;height:24px;color:#9aa0b2" aria-hidden="true"><use href="#i-arrow"/></svg>
+        <div class="ver on"><b>v3</b><span>activa</span></div>
+      </div>
+      <p data-step="1" style="--d:600;font-size:32px" class="soft"><b style="color:var(--on-light)">Saber qué versión respondió, comparar y volver atrás.</b> La identidad del agente se mantiene entre versiones: sus permisos no se rompen.</p>
+    </div>
+    <div style="width:780px;display:flex;flex-direction:column;gap:26px">
+      <p class="eyebrow" data-step="2" style="color:var(--accent);font-size:22px">Qué entra en una versión</p>
+      <div class="stagger" data-step="2" style="display:flex;flex-direction:column;gap:26px">
+        <div class="feat"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg><div><b>El código</b><span>el paquete de la carpeta del agente</span></div></div>
+        <div class="feat"><svg class="ico" aria-hidden="true"><use href="#i-book"/></svg><div><b>Instrucciones y configuración</b><span>prompt y variables de entorno</span></div></div>
+        <div class="feat"><svg class="ico" aria-hidden="true"><use href="#i-box"/></svg><div><b>Recursos y protocolos</b><span>CPU, memoria, Responses, A2A</span></div></div>
+        <div class="feat"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg><div><b>El guardrail</b><span>la política de contenido asociada</span></div></div>
+      </div>
+    </div>
+  </div>
+  <p class="callout" data-step="2" style="--d:700"><b class="hot">Un cambio de una frase es una versión nueva.</b> Y puede cambiar el comportamiento sin un solo error.</p>
+  <aside class="public"><p>Cada despliegue crea una versión nueva del agente y conserva las anteriores: se puede saber qué versión respondió, comparar y volver atrás desplegando la configuración anterior. La versión no es solo el código: las instrucciones, la configuración, los recursos y el guardrail también son parte de ella. La identidad del agente no cambia entre versiones, así que sus permisos no se rompen.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/agents/overview">Learn · Agents overview</a></li></ul></aside>
+</section>
+
+<!-- 13 · Demo 3 -->
+<section class="slide dark" data-act="2" data-title="Demo 3 · Cambia una frase">
+  <p class="eyebrow">Demo 3 · ≈ 70 s de despliegue</p>
+  <h2 class="title sm" style="margin-top:-20px">Cambia una frase: una versión nueva</h2>
+  <div class="term" style="flex:1" data-anim="term" data-lines='[["c","  Do not invent benefit information."],["a","+ Close always with saying Haahee!"],["c"," "],["$","azd env set AGENT_PROMPT new-version && azd deploy hr-benefits-agent"],["$","azd ai agent invoke hr-benefits-agent --new-session \"Tell me about the Learning Budget.\""],["o","The Learning Budget is an annual budget for courses, conferences, books… Haahee!"]]'>
+    <div class="bar"><span>prompts/baseline.md → prompts/new-version.md</span><button type="button" data-copy>Copiar comandos</button></div><pre></pre>
+  </div>
+  <aside class="public"><p>Cambiar una frase del prompt y desplegar crea una versión nueva en unos 70 s: se empaqueta la carpeta del agente, se construye en remoto desde requirements.txt y la versión anterior se conserva, con la misma identidad.</p><ul><li><a data-repo="docs/demo-guide.md">Repo · guía: acto 2</a></li><li><a data-repo="agents/hr-benefits-agent/prompts/new-version.md">Repo · el prompt new-version</a></li></ul></aside>
+</section>
+
+<!-- 14 · Pilares -->
+<section class="slide light" data-act="2" data-title="Una frase cambió el comportamiento… y nada falló">
+  <h2 class="title">Una frase cambió el comportamiento… y nada falló</h2>
+  <p class="lede" style="margin-top:-12px">¿Cómo sé si una versión lo ha roto? Los tres pilares de la observabilidad:</p>
+  <div class="row stagger" data-step="1">
+    <div class="card pick"><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><h3>Evaluación</h3><p class="soft">¿Lo hace bien? Preguntas de prueba y métricas que se repiten en cada cambio.</p><span class="tag">Ahora</span></div>
+    <div class="card"><svg class="ico" style="color:var(--on-light-soft)" aria-hidden="true"><use href="#i-route"/></svg><h3>Trazas</h3><p class="soft">¿Qué ha pasado en esta ejecución? Cada paso: modelo, herramientas, otros agentes.</p><span class="tag ghost">Más adelante</span></div>
+    <div class="card"><svg class="ico" style="color:var(--on-light-soft)" aria-hidden="true"><use href="#i-gauge"/></svg><h3>Monitorización</h3><p class="soft">¿Cómo va en producción? Latencia, errores, tokens y calidad a lo largo del tiempo.</p><span class="tag ghost">En producción</span></div>
+  </div>
+  <aside class="public"><p>Ningún error, ningún test rojo, y el agente se comporta distinto. Para saber si una versión lo ha roto están los tres pilares de la observabilidad: evaluación, trazas y monitorización.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/concepts/observability">Learn · Observability in Foundry</a></li></ul></aside>
+</section>
+
+<!-- 15 · Demo 4 -->
+<section class="slide dark" data-act="2" data-title="Demo 4 · Una evaluación no es magia">
+  <p class="eyebrow">Demo 4</p>
+  <h2 class="title sm" style="margin-top:-20px">Una evaluación no es magia</h2>
+  <div style="display:flex;gap:56px;flex:1">
+    <div style="width:700px;display:flex;flex-direction:column;gap:20px">
+      <div class="card enter" style="--i:0;flex-direction:row;align-items:center;padding:26px 32px"><svg class="ico" aria-hidden="true"><use href="#i-db"/></svg><div><b style="font-size:32px">Dataset</b><p class="soft" style="font-size:26px">15 preguntas, sin respuestas esperadas</p></div></div>
+      <div class="card enter" style="--i:1;flex-direction:row;align-items:center;padding:26px 32px"><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg><div><b style="font-size:32px">Métricas</b><p class="soft" style="font-size:26px">7 criterios: una frase y un peso</p></div></div>
+      <div class="card enter" style="--i:2;flex-direction:row;align-items:center;padding:26px 32px"><svg class="ico" aria-hidden="true"><use href="#i-scale"/></svg><div><b style="font-size:32px">Juez</b><p class="soft" style="font-size:26px">un modelo puntúa cada fila</p></div></div>
+      <div class="card enter" style="--i:3;flex-direction:row;align-items:center;padding:26px 32px"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg><div><b style="font-size:32px">Agente</b><p class="soft" style="font-size:26px">la versión que se evalúa</p></div></div>
+    </div>
+    <div class="card" data-step="1" data-anim="meters" style="flex:1;justify-content:center;gap:44px">
+      <p class="eyebrow" style="color:var(--on-dark-mute);font-size:22px">La misma evaluación, dos versiones del prompt</p>
+      <div class="meters">
+        <div class="meter" data-ok="15"><div class="top"><div><div class="name">Prompt base</div><div class="note">15 de 15 filas aprobadas</div></div><div class="pct">0 %</div></div><div class="cells"></div></div>
+        <div class="meter" data-ok="6"><div class="top"><div><div class="name">Prompt «mistake»</div><div class="note">«no uses la herramienta» · 6 de 15</div></div><div class="pct">0 %</div></div><div class="cells"></div></div>
+      </div>
+      <p class="judge">tool_use_for_exact_policy_details = 1<br><span>juez: «the assistant did not use the benefit lookup tool»</span></p>
+    </div>
+  </div>
+  <aside class="public"><p>Una evaluación es configuración: un dataset de 15 preguntas normales, sin respuestas esperadas; un evaluador con 7 métricas, cada una una frase y un peso, que puntúa un modelo juez; y el agente que se evalúa. La misma evaluación da 15 de 15 con el prompt base y 6 de 15 con el prompt «mistake», que dice al agente que no use su herramienta. La fila 1 fallida tiene tool_use_for_exact_policy_details = 1. Ejecutarla son 15 llamadas al agente y 15 al juez: unos minutos.</p><ul><li><a data-repo="agents/hr-benefits-agent/evals/">Repo · la evaluación: dataset, rúbrica y azure.eval.yaml</a></li><li><a data-repo="README.md">Repo · README: Evaluate the Agent</a></li></ul></aside>
+</section>
+
+<!-- 16 · Producción 2 -->
+<section class="slide light" data-act="2" data-title="¿Y en producción? · Que evolucione">
+  <p class="eyebrow">Que evolucione sin miedo</p>
+  <h2 class="title" style="margin-top:-20px">¿Y en producción?</h2>
+  <div class="row stagger" data-step="1">
+    <div class="card"><div class="head"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><h3>Antes de desplegar</h3></div><p class="sub acc">una puerta que para una mala versión</p>
+      <ul class="list"><li>La evaluación como puerta de calidad en CI/CD (GitHub Actions o Azure DevOps)</li><li>Una versión por debajo del umbral no se publica</li><li>Comparar versiones antes de promocionar</li></ul></div>
+    <div class="card"><div class="head"><svg class="ico alt" aria-hidden="true"><use href="#i-pulse"/></svg><h3>En producción</h3></div><p class="sub alt">continuo: detecta lo que cambia</p>
+      <ul class="list"><li>Evaluación programada sobre el dataset: detecta deriva cuando cambian el modelo, el conocimiento o las herramientas</li><li>Evaluación continua sobre una muestra del tráfico real</li></ul></div>
+  </div>
+  <aside class="public"><p>En un pipeline, la misma evaluación es una puerta: una versión por debajo del umbral no se publica. En producción no se apaga: la evaluación programada detecta deriva y la evaluación continua puntúa una muestra del tráfico real.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/how-to/evaluation-github-action">Learn · Evaluation in GitHub Actions (preview)</a></li><li><a href="https://learn.microsoft.com/azure/foundry/observability/how-to/how-to-monitor-agents-dashboard#set-up-continuous-evaluation">Learn · Continuous evaluation</a></li><li><a href="https://learn.microsoft.com/azure/foundry/concepts/observability">Learn · Observability in Foundry</a></li></ul></aside>
+</section>
+
+<!-- 17 · Acto 3 -->
+<section class="slide dark divider" data-act="3" data-hud="count" data-title="Acto 3 · Que se integre">
+  <div class="txt"><p class="eyebrow">Acto 3</p><h1 class="display" style="font-size:104px">Que se integre</h1><p class="lede">Conocimiento de la empresa y otros agentes</p></div>
+  <div><p class="count">6 / 8</p><div class="mini" data-anim="board" data-lit="5" data-new="1"></div></div>
+  <aside class="public"><p>El negocio quiere más que una lista de beneficios: necesita el manual de la empresa y lo que sabe el equipo de IT.</p></aside>
+</section>
+
+<!-- 18 · Arquitectura -->
+<section class="slide light" data-act="3" data-title="El agente crece: conocimiento y otros agentes">
+  <h2 class="title">El agente crece: conocimiento y otros agentes</h2>
+  <div class="arch">
+    <svg class="links" viewBox="0 0 1664 560" preserveAspectRatio="none" aria-hidden="true">
+      <g data-step="1" style="--d:250" fill="none" stroke-width="5" stroke-linecap="round">
+        <path d="M400 160 H 560" style="stroke:var(--accent)"/><path d="M548 148 l14 12 -14 12" style="stroke:var(--accent)"/>
+        <path d="M200 262 V 340" style="stroke:#9aa0b2" stroke-dasharray="8 8"/>
+      </g>
+      <g data-step="2" fill="none" stroke-width="5" stroke-linecap="round">
+        <path d="M960 110 H 1100" style="stroke:var(--accent)"/><path d="M1088 98 l14 12 -14 12" style="stroke:var(--accent)"/>
+        <path d="M960 380 H 1100" style="stroke:var(--alt)"/><path d="M1088 368 l14 12 -14 12" style="stroke:var(--alt)"/>
+      </g>
+    </svg>
+    <div class="box" data-step="1" style="left:0;top:70px;width:400px;background:var(--accent-soft);border:3px solid var(--accent)"><b class="acc">hr-agent</b><span>Agent Framework · hosted</span></div>
+    <div class="box" data-step="1" style="left:0;top:340px;width:400px;background:var(--card);border:2px dashed #9aa0b2"><b class="mono" style="font-family:var(--f-mono);font-size:28px">get_benefit_details</b><span>herramienta local</span></div>
+    <p class="lbl acc" data-step="1" style="left:410px;top:96px;width:150px;text-align:center;font-size:21px;font-family:var(--f-body);line-height:1.2">identidad del agente</p>
+    <div class="box" data-step="1" style="--d:350;left:560px;top:20px;width:400px;height:470px;background:var(--card);border:1px solid var(--light-line);justify-content:center"><svg class="ico" style="color:var(--on-light)" aria-hidden="true"><use href="#i-wrench"/></svg><b>Toolbox</b><span style="font-size:27px;line-height:1.4">punto de entrada gobernado · un solo endpoint MCP · versionado · credenciales en la conexión, no en el código</span></div>
+    <p class="lbl acc" data-step="2" style="left:975px;top:60px">MCP</p>
+    <p class="lbl alt" data-step="2" style="left:978px;top:396px">A2A</p>
+    <div class="box" data-step="2" style="left:1104px;top:20px;width:560px;background:var(--card);border:1px solid var(--light-line)"><b>Foundry IQ</b><span>manual de MyConcepts · Azure AI Search · con citas</span></div>
+    <div class="box" data-step="2" style="--d:250;left:1104px;top:290px;width:560px;background:var(--alt-soft);border:3px solid var(--alt)"><b class="alt">it-agent</b><span>LangGraph · hosted · equipo de IT</span></div>
+  </div>
+  <p data-step="2" style="--d:500;font-size:32px">Sin claves: cada llamada usa la identidad del agente. <b>La herramienta de IT se añadió al toolbox sin volver a desplegar hr-agent.</b></p>
+  <aside class="public"><p>hr-agent mantiene la herramienta de beneficios y añade el manual de MyConcepts (empresa ficticia) a través de Foundry IQ. No llama a la búsqueda directamente: pasa por un toolbox, un punto de entrada gobernado, sin claves en el código. El equipo de IT tiene su propio agente en LangGraph, alojado igual, y hablan por A2A, un protocolo abierto. A2A es el idioma entre agentes; el toolbox, la puerta por la que pasa todo. Que una herramienta pida aprobación lo marca el toolbox, pero lo tiene que hacer cumplir el runtime del agente.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/agents/how-to/tools/use-toolbox-hosted-agent">Learn · Use a toolbox with a hosted agent</a></li><li><a href="https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox">Learn · Toolboxes</a></li><li><a href="https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent">Learn · Agent-to-agent (A2A)</a></li><li><a data-repo="docs/azure-search-in-foundry.md">Repo · Azure AI Search en Foundry</a></li></ul></aside>
+</section>
+
+<!-- 19 · Demo 5 -->
+<section class="slide dark" data-act="3" data-title="Demo 5 · El manual y otro agente">
+  <p class="eyebrow">Demo 5 · ≈ 30 s</p>
+  <h2 class="title sm" style="margin-top:-20px;font-size:54px">Un agente que consulta el manual y pregunta a otro agente</h2>
+  <div class="term dense" style="flex:1" data-anim="term" data-lines='[["$","azd ai agent invoke hr-agent --new-session \"List the names of all the tools you can use, one per line, without calling any.\""],["o","get_benefit_details"],["o","hr_handbook___knowledge_base_retrieve"],["x","it-agent-a2a___SendMessage"],["c","# añadida al toolbox sin redesplegar hr-agent"],["$","azd ai agent invoke hr-agent --new-session \"I start Monday as a consultant: what do I need to do in my first week, and which accounts will I get?\""],["c","# pasos de la semana 1 del manual (source: onboarding-checklist.md) + cuentas y pasos de it-agent"]]'>
+    <div class="bar"><span>hr-agent → toolbox → Foundry IQ + it-agent</span><button type="button" data-copy>Copiar comandos</button></div><pre></pre>
+  </div>
+  <p class="soft" style="font-size:27px;margin-top:-10px">Agent Framework y LangGraph, en el mismo runtime, con la misma identidad y las mismas trazas.</p>
+  <aside class="public"><p>hr-agent lista sus herramientas: la de IT aparece sin haber redesplegado hr-agent. La pregunta de onboarding combina el manual (con la cita a onboarding-checklist.md) y la respuesta de it-agent, en unos 30 s.</p><ul><li><a data-repo="docs/demo-guide.md">Repo · guía: acto 3</a></li><li><a data-repo="agents/it-agent/agent.py">Repo · it-agent en LangGraph</a></li></ul></aside>
+</section>
+
+<!-- 20 · Identidad -->
+<section class="slide light" data-act="3" data-title="Una identidad por agente">
+  <h2 class="title">Una identidad por agente: mínimo privilegio</h2>
+  <div style="display:flex;gap:64px">
+    <div class="card" style="width:960px;flex:none;padding:30px 30px 18px">
+      <table class="roles">
+        <tr><th style="width:44%">Rol de hr-agent</th><th>Ámbito</th><th>Para qué</th></tr>
+        <tr><td>Search Index Data Reader</td><td>el servicio de búsqueda</td><td>leer el manual</td></tr>
+        <tr><td>Foundry Agent Consumer</td><td>solo it-agent</td><td>llamarle por A2A</td></tr>
+        <tr><td>Monitoring Metrics Publisher</td><td>Application Insights</td><td>enviar sus trazas</td></tr>
+      </table>
+    </div>
+    <div class="stagger" data-step="1" style="flex:1;display:flex;flex-direction:column;gap:34px">
+      <div class="feat"><svg class="ico ok" aria-hidden="true"><use href="#i-user-x"/></svg><div><b>Un token personal no sirve</b><span>Su toolbox solo acepta la identidad del agente.</span></div></div>
+      <div class="feat"><svg class="ico ok" aria-hidden="true"><use href="#i-key"/></svg><div><b>Sin claves ni secretos</b><span>Nada que rotar ni que se pueda filtrar.</span></div></div>
+      <div class="feat"><svg class="ico ok" aria-hidden="true"><use href="#i-undo"/></svg><div><b>Revocable y auditable</b><span>Quitar un rol corta a un agente, no a todos.</span></div></div>
+    </div>
+  </div>
+  <p class="callout soft-acc" data-step="1" style="--d:500">Le quito el rol → <b>deja de leer el manual</b>. Se lo devuelvo → <b>vuelve a funcionar</b>. Sin redeploy ni rotar secretos.</p>
+  <aside class="public"><p>Un hosted agent es una carga de trabajo con su propia identidad, no un script que corre como quien lo desplegó. hr-agent tiene tres roles, cada uno sobre un único recurso. Su toolbox solo acepta la identidad del agente. Si se le quita el rol, deja de leer el manual; si se le devuelve, vuelve a funcionar, sin redeploy ni secretos que rotar.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/agents/concepts/agent-identity">Learn · Agent identity</a></li><li><a data-repo="scripts/demo-agent-identity.sh">Repo · script de revocar y restaurar</a></li></ul></aside>
+</section>
+
+<!-- 21 · Producción 3 -->
+<section class="slide light" data-act="3" data-title="¿Y en producción? · Que se integre">
+  <p class="eyebrow">Que se integre</p>
+  <h2 class="title" style="margin-top:-20px">¿Y en producción?</h2>
+  <div class="row stagger" data-step="1">
+    <div class="card"><div class="head"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><h3>Antes de desplegar</h3></div><p class="sub acc">una puerta que para una mala versión</p>
+      <ul class="list"><li>Conexiones y toolboxes separados para desarrollo y producción</li><li>Roles y conexiones como código (Bicep o Terraform)</li></ul></div>
+    <div class="card"><div class="head"><svg class="ico alt" aria-hidden="true"><use href="#i-pulse"/></svg><h3>En producción</h3></div><p class="sub alt">continuo: detecta lo que cambia</p>
+      <ul class="list"><li>Una identidad por agente: auditar, revocar y conceder lo mínimo, por agente</li><li>Ojo: añadir una herramienta al toolbox sin redeploy también cambia el agente: también pasa por la evaluación</li></ul></div>
+  </div>
+  <aside class="public"><p>En producción, roles y conexiones van como código. Y una advertencia: añadir una herramienta al toolbox sin redeploy cambia el comportamiento del agente, así que también tiene que pasar por la puerta de evaluación.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/agents/concepts/agent-identity">Learn · Agent identity</a></li><li><a href="https://learn.microsoft.com/azure/foundry/agents/how-to/set-up-ci-cd-cli">Learn · CI/CD with azd</a></li><li><a href="https://learn.microsoft.com/azure/foundry/agents/how-to/tools/use-toolbox-hosted-agent">Learn · Use a toolbox with a hosted agent</a></li></ul></aside>
+</section>
+
+<!-- 22 · Acto 4 -->
+<section class="slide dark divider" data-act="4" data-hud="count" data-title="Acto 4 · Entenderlo">
+  <div class="txt"><p class="eyebrow">Acto 4</p><h1 class="display" style="font-size:104px">Entenderlo</h1><p class="lede">Ahora es un sistema. Cuando una respuesta sale mal, ¿dónde ha fallado?</p></div>
+  <div><p class="count">7 / 8</p><div class="mini" data-anim="board" data-lit="6" data-new="1"></div></div>
+  <aside class="public"><p>Ahora es un sistema. Cuando una respuesta sale mal, ¿dónde ha fallado?</p></aside>
+</section>
+
+<!-- 23 · Traza -->
+<section class="slide dark" data-act="4" data-title="Demo 6 · Una pregunta, dos agentes, una traza">
+  <p class="eyebrow">Demo 6 · traza real de la demo 5</p>
+  <h2 class="title sm" style="margin-top:-20px">Una pregunta, dos agentes, una traza</h2>
+  <div class="trace" data-anim="trace">
+    <div class="hd"><div><i style="background:var(--accent-on-dark);margin-left:0"></i>hr-agent · Agent Framework<i style="background:var(--alt)"></i>it-agent · LangGraph</div><div class="clock">0,0 s</div></div>
+    <div class="rows"></div>
+    <div class="axis"><span></span><div><span>0 s</span><span>5 s</span><span>10 s</span><span>15 s</span><span>20 s</span></div><span></span></div>
+  </div>
+  <div class="takeaways" style="opacity:0;margin-top:-12px">
+    <div><b>≈ 10 s</b>del salto A2A son el arranque en frío de it-agent. Esto solo se ve con trazas.</div>
+    <div><b class="mono" style="font-family:var(--f-mono);font-size:34px;color:var(--term-out)">it.access.lookup</b>nuestra marca propia, con OpenTelemetry, junto a las del framework.</div>
+  </div>
+  <aside class="public"><p>Una traza es el recorrido completo de una petición: un árbol de pasos (spans), cada uno con su duración y sus atributos, según las convenciones de OpenTelemetry para IA generativa (invoke_agent, chat, execute_tool). El contexto de la traza viaja con la llamada A2A, así que la pregunta y lo que hizo el otro agente quedan en la misma traza, aunque sean dos frameworks. Esta es la traza real de la demo 5: el salto A2A dura unos 13 s y casi 10 son el arranque en frío de it-agent. Que la traza continúe a través de A2A se observó en este proyecto; Learn no lo documenta como tal.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/observability/concepts/trace-agent-concept">Learn · Agent tracing concepts</a></li><li><a href="https://learn.microsoft.com/azure/foundry/how-to/develop/langchain-traces">Learn · Tracing LangChain and LangGraph</a></li></ul></aside>
+</section>
+
+<!-- 24 · Qué miramos -->
+<section class="slide light" data-act="4" data-title="Qué miramos en una traza">
+  <h2 class="title">Qué miramos en una traza</h2>
+  <div class="row stagger" data-step="1">
+    <div class="card"><svg class="ico" aria-hidden="true"><use href="#i-route"/></svg><h3>El recorrido</h3><p class="soft">invoke_agent, chat, execute_tool y el salto A2A: de serie, en los dos frameworks.</p></div>
+    <div class="card"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg><h3>Marcas propias</h3><p class="soft">Spans de OpenTelemetry con lo que importa al negocio: rol, herramienta, resultado.</p></div>
+    <div class="card"><svg class="ico" aria-hidden="true"><use href="#i-eye-off"/></svg><h3>Contenido a demanda</h3><p class="soft">Mensajes y argumentos se registran solo si lo activas: pueden llevar datos personales.</p></div>
+  </div>
+  <pre data-step="1" style="--d:500;font-family:var(--f-mono);font-size:30px;line-height:1.6;background:var(--dark);color:var(--on-dark);border-radius:18px;padding:28px 40px">with tracer.start_as_current_span(<span style="color:var(--term-out)">"it.access.lookup"</span>) as span:
+    span.set_attribute(<span style="color:var(--term-out)">"it.role"</span>, role)</pre>
+  <aside class="public"><p>En el portal se ven tres cosas: el recorrido estándar que dan el framework y Foundry; las marcas propias, que son unas pocas líneas de OpenTelemetry; y el contenido de los mensajes, que va oculto por defecto porque puede llevar datos personales.</p><ul><li><a href="https://learn.microsoft.com/agent-framework/agents/observability">Learn · Agent Framework observability</a></li><li><a href="https://learn.microsoft.com/azure/foundry/observability/how-to/trace-agent-framework">Learn · Trace Agent Framework agents</a></li><li><a data-repo="agents/it-agent/main.py">Repo · it-agent: trazas y contenido</a></li></ul></aside>
+</section>
+
+<!-- 25 · Producción 4 -->
+<section class="slide light" data-act="4" data-title="¿Y en producción? · Entenderlo">
+  <p class="eyebrow">Entenderlo</p>
+  <h2 class="title" style="margin-top:-20px">¿Y en producción?</h2>
+  <div class="row stagger" data-step="1">
+    <div class="card"><div class="head"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><h3>Antes de desplegar</h3></div><p class="sub acc">una puerta que para una mala versión</p>
+      <ul class="list"><li>Trazas mientras desarrollamos, en local y en el entorno de pruebas</li></ul></div>
+    <div class="card"><div class="head"><svg class="ico alt" aria-hidden="true"><use href="#i-pulse"/></svg><h3>En producción</h3></div><p class="sub alt">continuo: detecta lo que cambia</p>
+      <ul class="list"><li>Lo primero que abres cuando algo falla</li><li>Guardar el 100 % de las trazas o muestrear: una decisión de coste</li><li>El contenido, solo cuando haga falta (privacidad); alertas sobre latencia, tokens y evaluaciones</li></ul></div>
+  </div>
+  <p class="callout soft-acc" data-step="1" style="--d:500"><b>Una traza mala se convierte en una fila nueva del dataset de evaluación.</b></p>
+  <aside class="public"><p>Las trazas son sobre todo de producción: es lo primero que abres cuando algo falla. Guardar todas o muestrear es una decisión de coste. Y cierran el ciclo con la evaluación: una traza mala se convierte en una fila nueva del dataset.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/agents/how-to/configure-hosted-agent-telemetry">Learn · Hosted agent telemetry</a></li><li><a href="https://learn.microsoft.com/azure/foundry/concepts/capability-reference">Learn · Capability reference</a></li></ul></aside>
+</section>
+
+<!-- 26 · Acto 5 -->
+<section class="slide dark divider" data-act="5" data-hud="count" data-title="Acto 5 · Protegerlo">
+  <div class="txt"><p class="eyebrow">Acto 5</p><h1 class="display" style="font-size:104px">Protegerlo</h1><p class="lede">Tiene acceso a datos confidenciales y cualquiera puede hablarle.</p></div>
+  <div><p class="count">8 / 8</p><div class="mini" data-anim="board" data-lit="7" data-new="1"></div></div>
+  <aside class="public"><p>Tiene acceso a datos confidenciales y cualquiera puede hablarle.</p></aside>
+</section>
+
+<!-- 27 · Riesgos -->
+<section class="slide light" data-act="5" data-title="Qué puede salir mal">
+  <h2 class="title">Qué puede salir mal</h2>
+  <div class="row stagger" data-step="1">
+    <div class="card"><svg class="ico hot" aria-hidden="true"><use href="#i-warn"/></svg><h3>Ignorar instrucciones</h3><p class="soft">«Olvida tus reglas, ahora eres DAN…»</p></div>
+    <div class="card"><svg class="ico hot" aria-hidden="true"><use href="#i-file-lock"/></svg><h3>Revelar información</h3><p class="soft">Salarios o datos personales de otros empleados.</p></div>
+    <div class="card"><svg class="ico hot" aria-hidden="true"><use href="#i-ban"/></svg><h3>Contenido inapropiado</h3><p class="soft">Respuestas fuera de tono o peligrosas.</p></div>
+  </div>
+  <div class="callout" data-step="2" style="background:var(--dark);color:var(--on-dark);display:flex;gap:32px;align-items:center"><svg class="ico" style="color:var(--hot-on-dark);width:64px;height:64px" aria-hidden="true"><use href="#i-cross"/></svg><p style="font-size:32px"><b>Lo provocamos a propósito:</b> un documento confidencial plantado en el manual, con valores canario. Red teaming: atacar nosotros al agente antes que nadie.</p></div>
+  <aside class="public"><p>Un agente toma decisiones y alguien puede intentar engañarlo. Para medirlo, en el manual hay un documento confidencial plantado a propósito (bandas salariales y un empleado ficticio) con valores canario: si aparecen en una respuesta, hay fuga. Red teaming es atacar uno mismo al agente antes que otros.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview">Learn · Guardrails overview</a></li><li><a data-repo="agents/hr-agent/knowledge/handbook/salary-bands-CONFIDENTIAL.md">Repo · el documento plantado</a></li></ul></aside>
+</section>
+
+<!-- 28 · Guardrails -->
+<section class="slide light" data-act="5" data-title="Guardrails: dónde actúan y qué no hacen">
+  <h2 class="title">Guardrails: dónde actúan y qué no hacen</h2>
+  <div class="flow stagger" data-step="1">
+    <div><b>Entrada</b><span>lo que pide el usuario</span></div>
+    <svg viewBox="0 0 40 24" aria-hidden="true"><use href="#i-arrow"/></svg>
+    <div class="g"><b>Guardrail</b><span>entrada</span></div>
+    <svg viewBox="0 0 40 24" aria-hidden="true"><use href="#i-arrow"/></svg>
+    <div><b>Agente</b><span>modelo y herramientas</span></div>
+    <svg viewBox="0 0 40 24" aria-hidden="true"><use href="#i-arrow"/></svg>
+    <div class="g"><b>Guardrail</b><span>salida</span></div>
+    <svg viewBox="0 0 40 24" aria-hidden="true"><use href="#i-arrow"/></svg>
+    <div><b>Respuesta</b><span>lo que recibe</span></div>
+  </div>
+  <div class="row stagger" data-step="2">
+    <div class="card"><div class="head"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg><h3>Lo que para</h3></div>
+      <ul class="list"><li>Ataques al agente (jailbreaks) y contenido dañino: odio, violencia, sexual, autolesiones</li><li>En la entrada, antes de que corran el modelo o las herramientas, y en la salida</li><li>También en llamadas y respuestas de herramientas (preview)</li></ul></div>
+    <div class="card"><div class="head"><svg class="ico hot" aria-hidden="true"><use href="#i-ban"/></svg><h3>Lo que no hace</h3></div>
+      <ul class="list"><li>Decidir si el agente puede llamar a una herramienta o actuar: eso son permisos, identidad y aprobación</li><li>Una pregunta normal que pide un dato que no debería salir</li><li><b style="color:var(--on-light)">Si la política no existe, no protege y no avisa</b></li></ul></div>
+  </div>
+  <aside class="public"><p>Un guardrail es una política de contenido que Foundry aplica a la entrada y a la salida del agente, sin tocar su código; se asocia en su configuración y forma parte de la versión. Detecta ataques al agente (jailbreaks) y contenido dañino. No decide si el agente puede actuar, y una pregunta normal que pide un dato que no debería salir no tiene nada que filtrar: eso se resuelve con el prompt, con qué datos se indexan y con la identidad del agente. Si la política referenciada no existe, el despliegue no falla y no protege.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview">Learn · Guardrails overview</a></li><li><a href="https://learn.microsoft.com/azure/foundry/guardrails/intervention-points">Learn · Intervention points</a></li><li><a href="https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agent-guardrails">Learn · Guardrails for hosted agents</a></li></ul></aside>
+</section>
+
+<!-- 29 · Demo 7 -->
+<section class="slide dark" data-act="5" data-title="Demo 7 · El guardrail frente a un jailbreak">
+  <p class="eyebrow">Demo 7</p>
+  <h2 class="title sm" style="margin-top:-20px">El guardrail frente a un jailbreak</h2>
+  <div style="display:flex;gap:40px;flex:1">
+    <div class="card" style="width:560px;flex:none">
+      <p class="eyebrow" style="color:var(--on-dark-mute);font-size:22px">azure-with-guardrail.yaml</p>
+      <pre style="font-family:var(--f-mono);font-size:23px;line-height:1.6;color:var(--term-out);white-space:pre-wrap">policies:
+  - type: rai_policy
+    raiPolicyName: …/hr-agent-guard</pre>
+      <p class="soft" style="font-size:28px"><b style="color:var(--on-dark)">Configuración, no código.</b> Forma parte de la versión y actúa antes de que corran el modelo o cualquier herramienta.</p>
+    </div>
+    <div class="term" style="flex:1" data-anim="term" data-slow data-lines='[["$","scripts/probe-guardrail.sh"],["o","benign              answered"],["g","jailbreak           BLOCKED"],["c","(… content safety policy violation at input stage …)"],["o","phone of employee   answered"],["c","# responde el agente: se niega a dar el teléfono"]]'>
+      <div class="bar"><span>hr-agent con hr-agent-guard</span><button type="button" data-copy>Copiar comando</button></div><pre></pre>
+    </div>
+  </div>
+  <aside class="public"><p>hr-agent lleva la política hr-agent-guard (Microsoft.DefaultV2 más Indirect Attack). El jailbreak se bloquea en la entrada, antes de que corran el modelo o las herramientas. Las preguntas por datos personales las rechaza el propio agente.</p><ul><li><a data-repo="scripts/probe-guardrail.sh">Repo · script de prueba del guardrail</a></li><li><a data-repo="azure-with-guardrail.yaml">Repo · manifiesto con el guardrail</a></li></ul></aside>
+</section>
+
+<!-- 30 · Red teaming -->
+<section class="slide light" data-act="5" data-title="Red teaming: el guardrail frena ataques, no fugas">
+  <h2 class="title" style="font-size:58px">Red teaming: el guardrail frena ataques, no fugas</h2>
+  <div style="display:flex;gap:72px">
+    <div style="flex:1;display:flex;flex-direction:column;gap:30px" data-step="1" data-anim="bars">
+      <div class="bars">
+        <div class="bar-row"><div class="top"><span>Prompt seguro <span class="soft" style="font-weight:400">(el que desplegamos)</span></span><span class="hot">fuga 0 %</span></div><div class="track"><i data-w="0" style="background:var(--ok)"></i><i data-w="0" style="background:var(--hot)"></i></div></div>
+        <div class="bar-row"><div class="top"><span>Prompt permisivo <span class="soft" style="font-weight:400">(solo demo)</span></span><span class="hot">fuga 21,7 %</span></div><div class="track"><i data-w="0" style="background:var(--ok)"></i><i data-w="21.7" style="background:var(--hot)"></i></div></div>
+        <div class="bar-row"><div class="top"><span>Permisivo + guardrail</span><span class="hot">fuga 18,3 %</span></div><div class="track"><i data-w="18.3" style="background:var(--ok)"></i><i data-w="18.3" style="background:var(--hot)"></i></div></div>
+      </div>
+      <div class="legend"><span><i style="background:var(--ok)"></i>bloqueado por el guardrail</span><span><i style="background:var(--hot)"></i>fuga de datos confidenciales</span><span><i style="background:#dfe1ec"></i>el agente se niega</span></div>
+      <p class="soft" style="font-size:25px">Escaneo dirigido propio: 50-60 ataques por configuración; fuga = aparece un valor canario del documento confidencial.</p>
+    </div>
+    <div class="card" data-step="2" style="width:640px;flex:none;background:var(--dark);border:0;color:var(--on-dark)">
+      <h3>Defensa por capas</h3>
+      <ul class="list" style="color:var(--on-dark-soft)"><li>El prompt: el nuestro no filtra nada (0 %)</li><li>Qué datos indexas para el agente</li><li>Su identidad, con lo mínimo</li><li>Una métrica de confidencialidad en la evaluación</li><li>El guardrail, para los ataques al agente</li></ul>
+    </div>
+  </div>
+  <aside class="public"><p>Escaneo dirigido propio contra tres configuraciones, con 50-60 ataques cada una. El guardrail para los jailbreaks (18 % de los ataques no llegan al modelo), pero la fuga en preguntas normales sigue (21,7 % frente a 18,3 %, dentro del ruido). Lo que la evita es el prompt (0 %). La defensa va por capas.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/concepts/ai-red-teaming-agent">Learn · AI red teaming agent</a></li><li><a data-repo="agents/hr-agent/redteam/">Repo · los escaneos de red teaming</a></li></ul></aside>
+</section>
+
+<!-- 31 · Producción 5 -->
+<section class="slide light" data-act="5" data-title="¿Y en producción? · Protegerlo">
+  <p class="eyebrow">Protegerlo</p>
+  <h2 class="title" style="margin-top:-20px">¿Y en producción?</h2>
+  <div class="row stagger" data-step="1">
+    <div class="card"><div class="head"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><h3>Antes de desplegar</h3></div><p class="sub acc">una puerta que para una mala versión</p>
+      <ul class="list"><li>Red teaming como prueba antes de publicar</li><li>Comprobar que la política existe: si falta, no protege y no avisa</li></ul></div>
+    <div class="card"><div class="head"><svg class="ico alt" aria-hidden="true"><use href="#i-pulse"/></svg><h3>En producción</h3></div><p class="sub alt">continuo: detecta lo que cambia</p>
+      <ul class="list"><li>El guardrail se aplica en cada petición</li><li>Red teaming programado: los ataques evolucionan</li><li>Evaluación continua con evaluadores de seguridad</li><li>Resultados del red teaming programado y alertas en el panel de monitorización</li></ul></div>
+  </div>
+  <aside class="public"><p>Antes de publicar, red teaming como puerta, y comprobar que la política existe: una política que falta falla en abierto, sin error. En producción, el guardrail en cada petición y red teaming programado, porque los ataques cambian.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/concepts/ai-red-teaming-agent">Learn · AI red teaming agent</a></li><li><a href="https://learn.microsoft.com/azure/foundry/observability/how-to/how-to-monitor-agents-dashboard">Learn · Agent monitoring dashboard</a></li><li><a href="https://learn.microsoft.com/azure/foundry/concepts/observability">Learn · Observability in Foundry</a></li></ul></aside>
+</section>
+
+<!-- 32 · Ciclo -->
+<section class="slide dark" data-act="6" data-title="Un agente operable es un ciclo">
+  <h2 class="title sm">Un agente operable es un ciclo</h2>
+  <div class="cycle">
+    <svg class="ring" viewBox="0 0 600 600" aria-hidden="true"><circle cx="300" cy="300" r="270" fill="none" stroke="#2c2e34" stroke-width="4" stroke-dasharray="10 12"/></svg>
+    <div class="core"><b>Agente<br>operable</b><span>cada vuelta, una versión mejor</span></div>
+    <div class="stagger" data-step="1">
+      <div class="st" style="left:602px;top:0"><b><em>1</em>Construir e integrar</b><span>tu código y tu framework · toolbox · Foundry IQ · A2A</span></div>
+      <div class="st" style="left:1140px;top:170px"><b><em>2</em>Evaluar antes de publicar</b><span>evaluaciones y red teaming como puerta de calidad</span></div>
+      <div class="st" style="left:1140px;top:410px"><b><em>3</em>Desplegar versiones</b><span>Hosted Agent · identidad propia · conversación y sesión</span></div>
+      <div class="st" style="left:602px;top:580px"><b><em>4</em>Proteger cada petición</b><span>guardrails en la entrada y la salida · mínimo privilegio</span></div>
+      <div class="st" style="left:64px;top:410px"><b><em>5</em>Observar</b><span>trazas de extremo a extremo · monitorización y alertas</span></div>
+      <div class="st" style="left:64px;top:170px"><b><em>6</em>Medir en producción</b><span>evaluación continua · evaluación y red teaming programados</span></div>
+    </div>
+  </div>
+  <aside class="public"><p>No es una lista de tareas: es cómo tiene que funcionar un agente en producción. Cada vuelta del ciclo produce una versión mejor, y lo que se aprende en producción, por ejemplo una traza que salió mal, vuelve al principio como una fila nueva del dataset de evaluación.</p><ul><li><a href="https://learn.microsoft.com/azure/foundry/concepts/observability">Learn · Observability in Foundry</a></li><li><a href="https://learn.microsoft.com/azure/foundry/observability/how-to/evaluate-agent#integrate-into-your-workflow">Learn · Integrate evaluation into your workflow</a></li></ul></aside>
+</section>
+
+<!-- 33 · Respuesta -->
+<section class="slide light" data-act="6" data-title="¿Qué necesita un agente a su alrededor?">
+  <h2 class="title sm">¿Qué necesita un agente a su alrededor?</h2>
+  <p class="lede" style="margin-top:-16px">La pregunta del principio, respondida</p>
+  <div class="answers stagger" data-step="1">
+    <div><em>1</em><b>Desplegarlo</b><p>Tu código y tu framework<br>Identidad propia<br>Conversación y sesión, de serie</p></div>
+    <div><em>2</em><b>Evolucionarlo</b><p>Versiones<br>Evaluación versionada<br>Antes y después de desplegar</p></div>
+    <div><em>3</em><b>Integrarlo</b><p>Toolbox gobernado<br>Foundry IQ<br>A2A entre agentes</p></div>
+    <div><em>4</em><b>Entenderlo</b><p>Trazas de extremo a extremo<br>Marcas propias con OpenTelemetry</p></div>
+    <div><em>5</em><b>Protegerlo</b><p>Guardrails<br>Red teaming<br>Mínimo privilegio</p></div>
+  </div>
+  <div class="spacer"></div>
+  <div class="qr-badge light" data-step="1" style="--d:700"><svg class="qr" style="width:170px;height:170px" role="img" aria-label="Código QR del repositorio"><use href="#qr"/></svg><span>Código de la demo<br><b data-bind="repo"></b></span></div>
+  <aside class="public"><p>La respuesta a la pregunta del principio, acto a acto. Sin reescribir el agente: el mismo código y el framework que elija cada equipo.</p><ul><li><a data-repo="docs/demo-guide.md">Repo · guía para ejecutarlo todo</a></li></ul></aside>
+</section>
+
+<!-- 34 · Preguntas -->
+<section class="slide statement" data-act="6" data-hud="none" data-title="¿Preguntas?">
+  <div class="spacer"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:64px">
+    <h1 class="display enter" style="font-size:200px">¿Preguntas?</h1>
+    <svg class="qr enter" style="--i:2;width:380px;height:380px;flex:none;border-radius:24px" role="img" aria-label="Código QR del repositorio"><use href="#qr"/></svg>
+  </div>
+  <div class="spacer"></div>
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:48px">
+    <p style="font-size:32px;color:#ffffff" data-bind="byline"></p>
+    <p class="mono" style="font-size:30px">Escanea: <span data-bind="repo"></span></p>
+  </div>
+  <aside class="public"><p>Gracias. El código, las demos y la guía para ejecutarlo todo están en el repositorio.</p><ul><li><a data-repo="docs/demo-guide.md">Repo · guía para ejecutar toda la demo</a></li><li><a data-repo="README.md">Repo · README del repositorio</a></li></ul></aside>
+</section>
+
+<div id="hud" class="hidden"><div class="track"><span class="tracks"></span><span class="lbl"></span></div><span class="num"></span></div>
+</div>
+
+<div id="notes" aria-live="polite"><button type="button" class="close" data-c="notes" aria-label="Cerrar las notas">Cerrar</button><h4>Para saber más · <span></span></h4><div class="body"></div></div>
+<div id="controls" role="toolbar" aria-label="Controles de la presentación">
+  <button type="button" class="nav" data-c="prev" aria-label="Anterior">‹</button>
+  <span class="acts"></span>
+  <button type="button" class="nav" data-c="next" aria-label="Siguiente">›</button>
+  <span class="sep"></span>
+  <button type="button" data-c="notes">Notas</button>
+  <button type="button" data-c="toc">Índice</button>
+  <button type="button" data-c="qr">QR</button>
+  <button type="button" data-c="fs">Pantalla completa</button>
+</div>
+<nav id="toc" aria-label="Índice"><button type="button" class="close" data-c="toc" aria-label="Cerrar el índice">Cerrar</button></nav>
+<div id="qr-overlay" role="dialog" aria-label="Código QR del repositorio"><svg class="qr" role="img" aria-label="Código QR del repositorio"><use href="#qr"/></svg><span data-bind="repo"></span></div>
+<div id="hint"><span class="keys"><kbd>→</kbd> avanzar · <kbd>1</kbd>–<kbd>5</kbd> ir a un acto · <kbd>N</kbd> notas · <kbd>O</kbd> índice · <kbd>Q</kbd> QR · <kbd>M</kbd> o el borde inferior: controles</span><span class="touch">Desliza o toca para avanzar · toca el borde inferior para ver los controles</span></div>
+
+<script>
+/* Deck-wide texts: change these to reuse the presentation. */
+const DECK = {
+  byline: "Christian Carballo Lozano · Plain Concepts",
+  repo: "github.com/ccarballolozano/foundry-agents",
+  repoUrl: "https://github.com/ccarballolozano/foundry-agents",
+  branch: "main"
+};
+
+(function () {
+  const stage = document.getElementById("stage");
+  const slides = Array.from(document.querySelectorAll(".slide"));
+  const hud = document.getElementById("hud");
+  const progress = document.getElementById("progress");
+  const notesEl = document.getElementById("notes");
+  const toc = document.getElementById("toc");
+  const qrOverlay = document.getElementById("qr-overlay");
+  qrOverlay.addEventListener("click", () => qrOverlay.classList.remove("open"));
+  const controls = document.getElementById("controls");
+
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const PIECES = ["Dónde corre", "Identidad", "Contexto", "Versiones", "Evaluación", "Integración", "Observabilidad", "Protección"];
+  const ACTS = [
+    { lit: 0, name: "Funciona" }, { lit: 3, name: "Que corra y lo puedan usar" }, { lit: 5, name: "Que evolucione sin miedo" },
+    { lit: 6, name: "Que se integre" }, { lit: 7, name: "Entenderlo" }, { lit: 8, name: "Protegerlo" }, { lit: 8, name: "Un agente operable" }
+  ];
+  let cur = 0, step = 0, epoch = 0;
+
+  document.querySelectorAll("[data-bind]").forEach(el => { el.textContent = DECK[el.dataset.bind] || ""; });
+  document.querySelectorAll(".stagger").forEach(g => Array.from(g.children).forEach((c, i) => c.style.setProperty("--i", i)));
+  hud.querySelector(".tracks").innerHTML = PIECES.map(p => `<i title="${p}"></i>`).join("");
+
+  // Scale the 1920×1080 stage to the window.
+  function fit() {
+    const s = Math.min(innerWidth / 1920, innerHeight / 1080);
+    stage.style.left = (innerWidth - 1920 * s) / 2 + "px";
+    stage.style.top = (innerHeight - 1080 * s) / 2 + "px";
+    stage.style.transform = `scale(${s})`;
+  }
+  addEventListener("resize", fit); fit();
+
+  const maxStep = s => Math.max(0, ...Array.from(s.querySelectorAll("[data-step]")).map(e => +e.dataset.step));
+  const later = (fn, ms) => { const e = epoch; setTimeout(() => { if (e === epoch) fn(); }, reduced ? 0 : ms); };
+
+  function applyStep(s, n, animate) {
+    s.querySelectorAll("[data-step]").forEach(el => {
+      const on = +el.dataset.step <= n;
+      const was = el.classList.contains("shown");
+      el.classList.toggle("shown", on);
+      if (on && !was && el.dataset.anim) run(el, animate);
+    });
+  }
+
+  function go(i, n, animate = true) {
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    const changed = i !== cur || !slides[i].classList.contains("active");
+    if (changed) {
+      epoch++;
+      slides.forEach((s, k) => s.classList.toggle("active", k === i));
+      const s = slides[i];
+      s.querySelectorAll("[data-step]").forEach(el => el.classList.remove("shown"));
+      // restart entrance animations
+      s.querySelectorAll(".enter").forEach(el => { el.style.animation = "none"; void el.offsetWidth; el.style.animation = ""; });
+      cur = i;
+      s.querySelectorAll("[data-anim]:not([data-step])").forEach(el => run(el, animate));
+      updateChrome();
+    }
+    step = Math.max(0, Math.min(n, maxStep(slides[i])));
+    applyStep(slides[i], step, animate);
+    history.replaceState(null, "", "#" + (i + 1));
+  }
+
+  function next() { if (step < maxStep(slides[cur])) { step++; applyStep(slides[cur], step, true); } else if (cur < slides.length - 1) go(cur + 1, 0); }
+  function prev() { if (step > 0) { step--; applyStep(slides[cur], step, false); } else if (cur > 0) go(cur - 1, 99, false); }
+
+  function updateChrome() {
+    const s = slides[cur];
+    const act = ACTS[+s.dataset.act || 0];
+    const mode = s.dataset.hud || "full";
+    hud.className = (s.classList.contains("light") ? "on-light" : "on-dark") + (mode === "none" ? " hidden" : "") + (mode === "count" ? " no-track" : "");
+    hud.querySelectorAll(".tracks i").forEach((t, k) => t.classList.toggle("on", k < act.lit));
+    hud.querySelector(".lbl").textContent = act.lit ? `${act.lit} / 8 · ${act.name}` : act.name;
+    hud.querySelector(".num").textContent = `${cur + 1} / ${slides.length}`;
+    progress.style.width = ((cur + 1) / slides.length * 100) + "%";
+    notesEl.querySelector("h4 span").textContent = `${cur + 1} · ${s.dataset.title || ""}`;
+    const pub = s.querySelector(".public");
+    notesEl.querySelector(".body").innerHTML = pub ? pub.innerHTML : "<p>Sin notas.</p>";
+    const curAct = +s.dataset.act || 0;
+    controls.querySelectorAll(".acts button").forEach(b => b.classList.toggle("cur", +b.dataset.act === curAct));
+    toc.querySelectorAll("button:not(.close)").forEach((b, k) => b.classList.toggle("cur", k === cur));
+  }
+
+  /* ---------- Animations ---------- */
+  function run(el, animate) {
+    const kind = el.dataset.anim;
+    if (kind === "term") return term(el);
+    if (kind === "meters") return meters(el);
+    if (kind === "trace") return trace(el);
+    if (kind === "board") return board(el);
+    if (kind === "bars") return bars(el);
+  }
+
+  function term(el) {
+    const lines = JSON.parse(el.dataset.lines);
+    const pre = el.querySelector("pre");
+    pre.textContent = "";
+    const speed = el.hasAttribute("data-slow") ? 38 : 20;
+    const add = (cls, text) => { const d = document.createElement("div"); if (cls) { const s = document.createElement("span"); s.className = cls; s.textContent = text; d.appendChild(s); } pre.appendChild(d); return d; };
+    if (reduced) { lines.forEach(l => l[0] === "$" ? add("", "").append(Object.assign(document.createElement("span"), { className: "p", textContent: "$ " }), l[1]) : add(l[0], l[1])); return; }
+    let i = 0;
+    const nextLine = () => {
+      if (i >= lines.length) return;
+      const l = lines[i++];
+      if (l[0] === "$") {
+        const d = add("p", "$ "); const t = document.createElement("span"); const k = document.createElement("span"); k.className = "k"; d.append(t, k);
+        let n = 0; const type = () => { if (n < l[1].length) { t.textContent += l[1][n++]; later(type, speed); } else { k.remove(); later(nextLine, 650); } }; type();
+      } else { add(l[0], l[1]); later(nextLine, l[0] === "o" || l[0] === "x" || l[0] === "g" ? 700 : 450); }
+    };
+    later(nextLine, 500);
+  }
+
+  function meters(el) {
+    const rows = Array.from(el.querySelectorAll(".meter"));
+    const judge = el.querySelector(".judge");
+    judge.style.opacity = 0;
+    rows.forEach(r => { r.querySelector(".cells").innerHTML = "<i></i>".repeat(15); r.querySelector(".pct").textContent = "0 %"; });
+    const fill = (r, done) => {
+      const ok = +r.dataset.ok, cells = r.querySelectorAll(".cells i"), pct = r.querySelector(".pct");
+      let k = 0; const tick = () => { if (k < 15) { cells[k].className = k < ok ? "ok" : "ko"; k++; pct.textContent = Math.round(Math.min(k, ok) / 15 * 100) + " %"; later(tick, 90); } else done(); }; tick();
+    };
+    later(() => fill(rows[0], () => later(() => fill(rows[1], () => later(() => { judge.style.opacity = 1; }, 400)), 400)), 400);
+  }
+
+  const SPANS = [["hr", "invoke_agent hr-agent", 0, 0, 20.28], ["hr", "chat gpt-5.4-mini", 1, 0.01, 1.58], ["hr", "knowledge_base_retrieve", 1, 1.59, 2.72],
+    ["hr", "it-agent-a2a SendMessage", 1, 1.6, 16.23], ["it", "invoke_agent it-agent", 2, 14.66, 3.08], ["it", "chat gpt-5.4-mini", 3, 14.67, 1.58],
+    ["it", "it.access.lookup", 3, 16.25, 0.12], ["it", "chat gpt-5.4-mini", 3, 16.25, 1.48], ["hr", "chat gpt-5.4-mini", 1, 17.82, 2.46]];
+  function trace(el) {
+    const T = 20.5, rows = el.querySelector(".rows"), clock = el.querySelector(".clock"), take = el.parentElement.querySelector(".takeaways");
+    rows.innerHTML = ""; take.style.opacity = 0;
+    const bars = [], durs = []; let cold;
+    SPANS.forEach((s, i) => {
+      const r = document.createElement("div"); r.className = "r";
+      const hr = s[0] === "hr";
+      r.innerHTML = `<div class="n" style="padding-left:${s[2] * 26}px;color:${hr ? "var(--on-dark)" : "#ffe3a3"}">${s[1]}</div><div class="tr"><div class="b" style="left:${s[3] / T * 100}%;background:${hr ? "var(--accent-on-dark)" : "var(--alt)"};${i === 3 ? "opacity:.5" : ""}"></div></div><div class="d">${s[4] < 0.5 ? "< 1 ms" : s[4].toFixed(1).replace(".", ",") + " s"}</div>`;
+      if (i === 3) { cold = document.createElement("div"); cold.className = "cold"; cold.style.left = (4.4 / T * 100) + "%"; cold.style.width = ((14.66 - 4.4) / T * 100) + "%"; r.querySelector(".tr").appendChild(cold); }
+      rows.appendChild(r); bars.push(r.querySelector(".b")); durs.push(r.querySelector(".d"));
+    });
+    const finish = () => { later(() => { cold.style.opacity = 1; }, 300); later(() => { take.style.opacity = 1; }, 900); };
+    if (reduced) { SPANS.forEach((s, i) => { bars[i].style.width = Math.max(s[4] / T * 100, .5) + "%"; durs[i].style.opacity = 1; }); clock.textContent = "20,3 s"; cold.style.opacity = 1; take.style.opacity = 1; return; }
+    const e = epoch, SPEED = 3; let t0 = null;
+    const frame = ts => {
+      if (e !== epoch) return;
+      if (t0 === null) t0 = ts;
+      const t = Math.min((ts - t0) / 1000 * SPEED, 20.3);
+      clock.textContent = t.toFixed(1).replace(".", ",") + " s";
+      SPANS.forEach((s, i) => { const w = Math.max(0, Math.min(t - s[3], s[4])); if (w > 0) bars[i].style.width = Math.max(w / T * 100, .5) + "%"; if (t >= s[3] + s[4]) durs[i].style.opacity = 1; });
+      if (t < 20.3) requestAnimationFrame(frame); else finish();
+    };
+    later(() => requestAnimationFrame(frame), 700);
+  }
+
+  function board(el) {
+    const lit = +el.dataset.lit, add = +el.dataset.new;
+    el.innerHTML = PIECES.map((p, k) => `<div class="t${k < lit ? " lit" : ""}">${p}</div>`).join("");
+    const tiles = el.querySelectorAll(".t");
+    for (let k = lit; k < lit + add; k++) {
+      later(() => { tiles[k].classList.add("lit", "pulse"); later(() => tiles[k].classList.remove("pulse"), 450); }, 700 + (k - lit) * 380);
+    }
+  }
+
+  function bars(el) {
+    el.querySelectorAll(".track i").forEach(b => { b.style.width = 0; });
+    later(() => el.querySelectorAll(".track i").forEach(b => { b.style.width = b.dataset.w + "%"; }), 150);
+  }
+
+  /* ---------- Copy buttons ---------- */
+  document.querySelectorAll("[data-copy]").forEach(btn => btn.addEventListener("click", ev => {
+    ev.stopPropagation();
+    const cmds = JSON.parse(btn.closest(".term").dataset.lines).filter(l => l[0] === "$").map(l => l[1]).join("\n");
+    const label = btn.textContent;
+    const ok = () => { btn.textContent = "Copiado"; setTimeout(() => { btn.textContent = label; }, 1500); };
+    (navigator.clipboard ? navigator.clipboard.writeText(cmds) : Promise.reject()).then(ok, () => { btn.textContent = "No se pudo copiar"; setTimeout(() => { btn.textContent = label; }, 1500); });
+  }));
+
+  /* ---------- Repository links in the public notes ---------- */
+  document.querySelectorAll("a[data-repo]").forEach(a => {
+    const path = a.dataset.repo;
+    a.href = `${DECK.repoUrl}/${path.endsWith("/") ? "tree" : "blob"}/${DECK.branch}/${path.replace(/\/$/, "")}`;
+  });
+  document.querySelectorAll(".public a").forEach(a => { a.target = "_blank"; a.rel = "noopener"; });
+
+  /* ---------- Sections and controls ---------- */
+  const ACT_CHIPS = [[0, "Inicio"], [1, "1 · Desplegarlo"], [2, "2 · Evolucionarlo"], [3, "3 · Integrarlo"], [4, "4 · Entenderlo"], [5, "5 · Protegerlo"], [6, "Cierre"]];
+  function actStart(a) { const k = slides.findIndex(s => (+s.dataset.act || 0) === a); return k < 0 ? 0 : k; }
+  function goAct(a) { if (a >= 0 && a <= 6) go(actStart(a), 0); }
+  controls.querySelector(".acts").innerHTML = ACT_CHIPS.map(([a, l]) => `<button type="button" data-act="${a}">${l}</button>`).join("");
+  controls.querySelectorAll(".acts button").forEach(b => b.addEventListener("click", () => goAct(+b.dataset.act)));
+  const ACTIONS = {
+    prev: () => prev(), next: () => next(),
+    notes: () => notesEl.classList.toggle("open"), toc: () => toc.classList.toggle("open"),
+    qr: () => qrOverlay.classList.toggle("open"),
+    fs: () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {}); }
+  };
+  document.querySelectorAll("[data-c]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); ACTIONS[b.dataset.c](); syncToggles(); }));
+  function syncToggles() {
+    controls.querySelector('[data-c="notes"]').classList.toggle("on", notesEl.classList.contains("open"));
+    controls.querySelector('[data-c="toc"]').classList.toggle("on", toc.classList.contains("open"));
+    controls.querySelector('[data-c="qr"]').classList.toggle("on", qrOverlay.classList.contains("open"));
+  }
+  // The bar stays out of the way: it shows only when the pointer reaches the bottom edge,
+  // when the M key is pressed, or when a control has keyboard focus. Moving the mouse
+  // elsewhere never shows it, and the cursor itself hides after a moment of stillness.
+  const EDGE = 72;
+  let pinned = false, leaveTimer, idleTimer;
+  const showBar = on => document.body.classList.toggle("ui", on || pinned);
+  addEventListener("pointermove", e => {
+    document.body.classList.remove("idle");
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => document.body.classList.add("idle"), 2000);
+    if (e.pointerType !== "mouse") return;
+    clearTimeout(leaveTimer);
+    if (innerHeight - e.clientY <= EDGE || (e.target instanceof Node && controls.contains(e.target))) showBar(true);
+    else leaveTimer = setTimeout(() => showBar(false), 500);
+  });
+  function toggleBar() { pinned = !pinned; showBar(pinned); }
+
+  /* ---------- Index ---------- */
+  let lastAct = -1;
+  slides.forEach((s, k) => {
+    const a = +s.dataset.act || 0;
+    if (a !== lastAct) { const h = document.createElement("h4"); h.textContent = a ? `Acto ${a <= 5 ? a : ""} · ${ACTS[a].name}`.replace("Acto  · ", "") : "Inicio"; toc.appendChild(h); lastAct = a; }
+    const b = document.createElement("button"); b.type = "button";
+    b.innerHTML = `<span>${k + 1}</span>${s.dataset.title || ""}`;
+    b.addEventListener("click", () => { go(k, 99, false); toc.classList.remove("open"); });
+    toc.appendChild(b);
+  });
+
+  /* ---------- Input ---------- */
+  addEventListener("keydown", e => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key;
+    if ((k === "Enter" || k === " ") && e.target.closest("button, a")) return;
+    if (["ArrowRight", "PageDown", " ", "Enter"].includes(k)) { e.preventDefault(); next(); }
+    else if (["ArrowLeft", "PageUp", "Backspace"].includes(k)) { e.preventDefault(); prev(); }
+    else if (k === "Home") go(0, 0);
+    else if (k === "End") go(slides.length - 1, 99, false);
+    else if (k === "n" || k === "N") notesEl.classList.toggle("open");
+    else if (k === "o" || k === "O") toc.classList.toggle("open");
+    else if (k === "q" || k === "Q") qrOverlay.classList.toggle("open");
+    else if (k === "m" || k === "M") toggleBar();
+    else if (/^[0-6]$/.test(k)) goAct(+k);
+    else if (k === "Escape") { toc.classList.remove("open"); notesEl.classList.remove("open"); qrOverlay.classList.remove("open"); pinned = false; showBar(false); }
+    else if (k === "f" || k === "F") { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {}); }
+    else if (k === "r" || k === "R") { const n = step; slides[cur].classList.remove("active"); go(cur, n); }
+    hideHint(); syncToggles();
+  });
+  stage.addEventListener("click", e => {
+    if (e.target.closest("button, a") || getSelection().toString()) return;
+    if (e.pointerType && e.pointerType !== "mouse" && innerHeight - e.clientY <= EDGE * 1.5) { toggleBar(); return; }
+    const r = stage.getBoundingClientRect();
+    (e.clientX - r.left < r.width * 0.25 ? prev : next)();
+    hideHint();
+  });
+  let sx = null;
+  addEventListener("pointerdown", e => { sx = e.clientX; });
+  addEventListener("pointerup", e => { if (sx !== null && e.pointerType !== "mouse" && Math.abs(e.clientX - sx) > 60) (e.clientX < sx ? next : prev)(); sx = null; });
+  addEventListener("hashchange", () => { const n = parseInt(location.hash.slice(1), 10) - 1; if (n >= 0 && n !== cur) go(n, 0); });
+  const hint = document.getElementById("hint");
+  let hintTimer = setTimeout(hideHint, 6000);
+  function hideHint() { hint.style.opacity = 0; clearTimeout(hintTimer); }
+
+  const start = parseInt(location.hash.slice(1), 10) - 1;
+  go(isNaN(start) ? 0 : start, 0);
+})();
+</script>
+</body>
+</html>
