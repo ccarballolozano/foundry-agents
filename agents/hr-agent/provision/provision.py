@@ -5,6 +5,8 @@ Run from the repo root, signed in with `az login` and `azd auth login`:
     python agents/hr-agent/provision/provision.py              # create or update
     python agents/hr-agent/provision/provision.py --teardown   # remove knowledge objects, toolboxes, connections
                                                                # (it-agent itself stays deployed)
+    python agents/hr-agent/provision/provision.py --pause      # delete only the search service (stops its
+                                                               # cost); run without flags to resume
 
 Steps, in order (each one checks what exists first and only changes what differs):
   1. Azure resources: search service, storage account + container, embedding deployment.
@@ -608,10 +610,54 @@ def teardown(env: dict[str, str]) -> None:
           f"--deployment-name {env.get('HR_AGENT_EMBEDDING_DEPLOYMENT')}")
 
 
+# --- Pause ------------------------------------------------------------------------
+def pause(env: dict[str, str], assume_yes: bool) -> None:
+    """Delete only the search service, the one resource that bills while idle.
+
+    Everything that points at it (toolboxes, connections, the agent's settings) is kept and
+    uses the same name and endpoint, so a plain re-run of this script brings it all back.
+    """
+    rg, name = env["AZURE_RESOURCE_GROUP"], env.get("HR_AGENT_SEARCH_SERVICE")
+    step("Pause: delete the search service")
+    service = az_exists("search", "service", "show", "-g", rg, "-n", name) if name else None
+    if service is None:
+        print(f"  search service {name} not found: already paused")
+        return
+    print(f"  This permanently deletes search service {name} in {rg}, with its index, knowledge source")
+    print("  and knowledge base. They are rebuilt from the repo by running this script again.")
+    print("  hr-agent cannot read the handbook until then.")
+    if not assume_yes and input("  Type the service name to confirm: ").strip() != name:
+        sys.exit("  Not confirmed; nothing deleted.")
+
+    # Its identity's roles live on other resources and would be left behind, orphaned.
+    principal = (service.get("identity") or {}).get("principalId")
+    if principal:
+        storage_id = (az_exists("storage", "account", "show", "-g", rg, "-n", env.get("HR_AGENT_STORAGE_ACCOUNT", ""))
+                      or {}).get("id")
+        foundry_id = env["AZURE_AI_PROJECT_ID"].split("/projects/")[0]
+        for scope in filter(None, (storage_id, foundry_id)):
+            result = run(["az", "role", "assignment", "delete", "--assignee", principal, "--scope", scope],
+                         check=False)
+            short_scope = scope.split("/providers/")[-1]
+            print(f"  search identity roles on {short_scope}: "
+                  f"{'removed' if result.returncode == 0 else 'left in place (' + result.stderr.strip() + ')'}")
+
+    az("search", "service", "delete", "-g", rg, "-n", name, "--yes")
+    print(f"  search service {name} deleted")
+    print("\nPaused. Toolboxes, connections, storage and the embedding deployment were kept (they cost")
+    print("nothing or next to nothing while idle). To resume, run this script without flags; it recreates")
+    print("the service under the same name and re-ingests the handbook (about 20 minutes). If Azure says")
+    print("the name is still taken, wait a few minutes and run it again.")
+
+
 # --- Main -------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--teardown", action="store_true", help="remove knowledge objects, toolboxes and connections")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--teardown", action="store_true", help="remove knowledge objects, toolboxes and connections")
+    modes.add_argument("--pause", action="store_true",
+                       help="delete only the search service to stop its cost; run without flags to resume")
+    parser.add_argument("--yes", action="store_true", help="with --pause: skip the confirmation prompt")
     args = parser.parse_args()
     for tool in ("az", "azd"):
         if not shutil.which(tool):
@@ -621,6 +667,9 @@ def main() -> None:
     print(f"azd environment: {env['AZURE_ENV_NAME']}  (resource group {env['AZURE_RESOURCE_GROUP']})")
     if args.teardown:
         teardown(env)
+        return
+    if args.pause:
+        pause(env, args.yes)
         return
 
     step("1. Azure resources")

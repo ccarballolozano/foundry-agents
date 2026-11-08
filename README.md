@@ -778,7 +778,7 @@ On the first run, before `hr-agent` has ever been deployed, step 6 reports **"hr
 | Agent guardrails (`raiPolicies` ARM API) | `2025-06-01` |
 | Red teaming (`azure-ai-evaluation[redteam]`, cloud red teaming via `azure-ai-projects`) | `1.18.11`, `2.7.0` |
 
-**Cost notes:** the search service is the main cost (Basic tier, billed per hour while it exists). Storage and embeddings for eight short files are negligible. Query planning, evaluation and red teaming call `gpt-5.4-mini` and are billed per token: a targeted scan is 50 agent calls, and an evaluation run is 20 agent calls plus 20 judge calls. Reuse an existing Basic search service where you can, and use [Tear down](#tear-down) when you're done.
+**Cost notes:** the search service is the main cost (Basic tier, billed per hour while it exists). Storage and embeddings for eight short files are negligible. Query planning, evaluation and red teaming call `gpt-5.4-mini` and are billed per token: a targeted scan is 50 agent calls, and an evaluation run is 20 agent calls plus 20 judge calls. Reuse an existing Basic search service where you can, use [Pause between demos](#pause-between-demos) to stop the search cost while keeping the rest deployed, and [Tear down](#tear-down) when you're done.
 
 > **Production path:** this script is deliberately readable and safe to repeat, but it is not infrastructure as code. For production, express the same resources and role assignments in Bicep or Terraform. The repo has no `infra/` because the azd agent extension manages the project infrastructure.
 
@@ -996,6 +996,18 @@ python agents/hr-agent/provision/provision.py --teardown
 ```
 
 This removes the toolboxes, the connections (including the two A2A connections to `it-agent`), the knowledge base and the knowledge source (with the index it created). `it-agent` stays deployed. It keeps the search service, storage account and embedding deployment, because they may be shared, and prints the commands to delete them. Run `provision.py` again to restore everything. The agent works again once ingestion finishes.
+
+### Pause between demos
+
+The search service is the only resource here with a fixed cost while idle (Basic is billed per hour, about $70–75 a month). It cannot be stopped, and it cannot be moved to the Free tier: Free has no managed identity, which the knowledge source needs to read the handbook and call the models keyless. To stop the cost without losing the rest of the setup:
+
+```bash
+python agents/hr-agent/provision/provision.py --pause    # asks you to type the service name; --yes skips that
+```
+
+This deletes only the search service (with its index, knowledge source and knowledge base) and its identity's roles on the storage account and the Foundry account. Toolboxes, connections, storage, the embedding deployment and both agents stay. Until you resume, `hr-agent` answers benefit questions but its handbook tool fails.
+
+To resume, run `provision.py` without flags, ideally the day before a demo. It takes about 20 minutes (measured once), mostly creating the service and assigning roles. It recreates the service under the same name and endpoint, so nothing that points at it changes, then grants the roles again and re-ingests the handbook. If Azure reports the name as taken, or ingestion fails right after the roles are granted (they take a few minutes to apply), wait and run it again. Then run `scripts/preflight.sh`.
 
 ---
 
