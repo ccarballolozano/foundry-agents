@@ -6,3 +6,9 @@
 __pycache__/
 # Logs the azd agents extension writes in the working directory
 azd-ai-agents-*.log
+# Speaker-only files for the talk (local; they contain subscription and resource IDs)
+docs/talk/backup/
+docs/talk/speaker.md
+docs/talk/*.pptx
+# macOS
+.DS_Store
